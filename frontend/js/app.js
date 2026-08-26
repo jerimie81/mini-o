@@ -471,726 +471,39 @@ const configure = {
   },
 };
 
-export const modelHub = {
-  cachedCatalog: [],
-  activeCategoryFilter: "all",
-  systemHardware: null,
-
-  async fetchHardwareInfo() {
-    try {
-      this.systemHardware = await api.hardware();
-    } catch {
-      this.systemHardware = null;
-    }
-  },
-
-  renderHostHardwareBanner(containerId = "") {
-    const hw = this.systemHardware;
-    if (!hw) return "";
-
-    const platformIcon = hw.platform === "win32" ? "🪟 Windows" : (hw.platform === "darwin" ? "🍎 macOS" : "🐧 Linux");
-    const ramInfo = `${hw.total_ram_gb} GB RAM (${hw.free_ram_gb} GB Free)`;
-    const cpuInfo = `${hw.cpus} Cores (${hw.arch})`;
-    const tier = hw.local_model_fit_tier || "Standard Execution Host";
-
-    return `
-      <div class="host-hardware-banner" ${containerId ? `id="${containerId}"` : ""}>
-        <div class="host-hardware-row">
-          <span class="host-hardware-title">🖥️ Host Machine Profile</span>
-          <span class="host-specs-summary">${platformIcon} · ${ramInfo} · ${cpuInfo}</span>
-        </div>
-        <div class="host-specs-chips">
-          <span class="host-spec-chip">Host RAM: <strong>${hw.total_ram_gb} GB</strong></span>
-          <span class="host-spec-chip">Avail Free: <strong>${hw.free_ram_gb} GB</strong></span>
-          <span class="host-spec-chip">CPU Threads: <strong>${hw.cpus}</strong></span>
-          <span class="host-spec-chip" style="color:var(--accent);">Execution Fit: <strong>${tier}</strong></span>
-        </div>
-      </div>
-    `;
-  },
-
-  renderActiveHero(model) {
-    if (!model) return;
-    const titleEl = document.getElementById("active-model-title");
-    const idEl = document.getElementById("active-model-id");
-    const ctxEl = document.getElementById("active-model-ctx");
-    const capEl = document.getElementById("active-model-cap");
-    const providerBadge = document.getElementById("active-model-provider-badge");
-    const typePill = document.getElementById("active-model-type-pill");
-    const headerCurrent = document.getElementById("current-model");
-
-    const isCloud = model.category === "cloud" || model.provider === "google" || model.provider === "minimax" || model.name?.includes(":cloud");
-    const providerName = model.provider_display || (isCloud ? "Cloud Frontier" : "Local Open-Weights");
-    const hwProfile = model.hardware_profile;
-    const speed = hwProfile?.estimated_tokens_per_sec || (isCloud ? "~100-140 tok/s" : "~35-70 tok/s");
-
-    if (titleEl) titleEl.textContent = model.display_name || model.name;
-    if (idEl) idEl.textContent = model.name;
-    if (ctxEl) ctxEl.textContent = model.context_window ? `${model.context_window} ctx` : (isCloud ? "1M ctx" : "32k ctx");
-    if (capEl) {
-      capEl.textContent = `⚡ ${speed} · ${isCloud ? "0 MB RAM (Cloud)" : `${model.parameter_size || "Local"}`}`;
-    }
-    if (providerBadge) providerBadge.textContent = providerName;
-    if (typePill) {
-      if (isCloud) {
-        typePill.textContent = "☁️ Cloud (0 RAM)";
-        typePill.className = "model-type-pill cloud";
-      } else {
-        typePill.textContent = model.installed ? "💻 Local Ready" : "📥 Available";
-        typePill.className = `model-type-pill ${model.installed ? "local" : ""}`;
-      }
-    }
-    if (headerCurrent) {
-      headerCurrent.textContent = `${state.favoriteModels.includes(model.name) ? "★ " : ""}${model.display_name || model.name}`;
-      headerCurrent.title = `Active Model: ${model.name} (${providerName}) · Speed: ${speed}. Click to switch (Ctrl+M)`;
-    }
-  },
-
-  populateDropdown(models, searchQuery = "") {
-    const select = document.getElementById("model-select");
-    if (!select) return;
-    select.innerHTML = "";
-
-    const q = (searchQuery || "").toLowerCase().trim();
-    const filtered = models.filter(m =>
-      !q ||
-      m.name.toLowerCase().includes(q) ||
-      (m.display_name && m.display_name.toLowerCase().includes(q)) ||
-      (m.provider_display && m.provider_display.toLowerCase().includes(q)) ||
-      (m.tags && m.tags.some(t => t.toLowerCase().includes(q)))
-    );
-
-    if (filtered.length === 0) {
-      const opt = document.createElement("option");
-      opt.value = "";
-      opt.textContent = "No matching models found";
-      select.appendChild(opt);
-      return;
-    }
-
-    const favs = filtered.filter(m => state.favoriteModels.includes(m.name));
-    const cloudModels = filtered.filter(m => !state.favoriteModels.includes(m.name) && (m.category === "cloud" || m.provider === "google" || m.provider === "minimax" || m.name.includes(":cloud")));
-    const localInstalled = filtered.filter(m => !state.favoriteModels.includes(m.name) && !cloudModels.includes(m) && m.installed);
-    const downloadable = filtered.filter(m => !state.favoriteModels.includes(m.name) && !cloudModels.includes(m) && !m.installed);
-
-    const addGroup = (label, items) => {
-      if (!items.length) return;
-      const grp = document.createElement("optgroup");
-      grp.label = label;
-      items.forEach(model => {
-        const opt = document.createElement("option");
-        opt.value = model.name;
-        const isCloud = model.category === "cloud" || model.provider === "google" || model.provider === "minimax" || model.name.includes(":cloud");
-        const badge = state.favoriteModels.includes(model.name) ? "★ " : (isCloud ? "☁️ " : (model.installed ? "💻 " : "📥 "));
-        const hwSpeed = model.hardware_profile?.estimated_tokens_per_sec ? ` · ${model.hardware_profile.estimated_tokens_per_sec}` : "";
-        const sizeInfo = isCloud ? "Cloud API (0 RAM)" : (model.installed ? formatBytes(model.size) : `${model.download_size_est || "Download"}`);
-        opt.textContent = `${badge}${model.display_name || model.name} (${model.parameter_size || sizeInfo}${hwSpeed})`;
-        grp.appendChild(opt);
-      });
-      select.appendChild(grp);
-    };
-
-    addGroup("★ Favorited Models", favs);
-    addGroup("☁️ Cloud Frontier Models (Zero Host RAM Load)", cloudModels);
-    addGroup("💻 Installed Local Models", localInstalled);
-    addGroup("📦 Open-Weights Catalog (Ready to Pull)", downloadable);
-
-    if (state.model && filtered.some(m => m.name === state.model)) {
-      select.value = state.model;
-    } else if (filtered.length > 0) {
-      select.value = filtered[0].name;
-    }
-  },
-
-  renderWorkspacePanel(category = "all", searchQuery = "") {
-    const list = document.getElementById("tab-models-list");
-    if (!list) return;
-
-    this.activeCategoryFilter = category;
-    const q = (searchQuery || document.getElementById("tab-model-search")?.value || "").toLowerCase().trim();
-
-    let models = this.cachedCatalog;
-    if (category === "favorites") {
-      models = models.filter(m => state.favoriteModels.includes(m.name));
-    } else if (category === "cloud") {
-      models = models.filter(m => m.category === "cloud" || m.provider === "google" || m.provider === "minimax" || m.name.includes(":cloud"));
-    } else if (category === "installed") {
-      models = models.filter(m => m.installed);
-    } else if (category === "best_fit") {
-      models = models.filter(m => m.machine_fit?.status === "optimal" || m.machine_fit?.status === "cloud_zero_load");
-    } else if (category !== "all") {
-      models = models.filter(m => m.category === category || (m.tags && m.tags.includes(category)));
-    }
-
-    if (q) {
-      models = models.filter(m =>
-        m.name.toLowerCase().includes(q) ||
-        (m.display_name && m.display_name.toLowerCase().includes(q)) ||
-        (m.provider_display && m.provider_display.toLowerCase().includes(q)) ||
-        (m.description && m.description.toLowerCase().includes(q)) ||
-        (m.tags && m.tags.some(t => t.toLowerCase().includes(q))) ||
-        (m.machine_fit?.recommendation && m.machine_fit.recommendation.toLowerCase().includes(q))
-      );
-    }
-
-    const hostBannerHtml = this.renderHostHardwareBanner();
-
-    if (!models.length) {
-      list.innerHTML = `${hostBannerHtml}<p class="empty-state">No models match the filter "${category}" ${q ? `with query "${q}"` : ""}.</p>`;
-      return;
-    }
-
-    const cardsHtml = models.map(model => {
-      const isActive = model.name === state.model;
-      const isFav = state.favoriteModels.includes(model.name);
-      const isCloud = model.category === "cloud" || model.provider === "google" || model.provider === "minimax" || model.name.includes(":cloud");
-      const fit = model.machine_fit || {
-        badge: isCloud ? "☁️ Zero Local RAM Load" : "⚡ Local Execution",
-        badge_class: isCloud ? "badge-fit-cloud" : "badge-fit-optimal",
-        recommendation: isCloud ? "Runs over cloud connection with 0 MB local host memory required." : "Runs locally on your host CPU / GPU."
-      };
-      const hw = model.hardware_profile || {};
-
-      return `
-        <article class="model-list-card ${isActive ? 'active-model' : ''}" data-model="${model.name}">
-          <div class="model-card-top">
-            <div class="model-card-title-group">
-              <strong class="model-card-title">${model.display_name || model.name}</strong>
-              <span class="model-card-provider">${model.provider_display || (isCloud ? "Cloud Frontier" : "Local Open-Weights")} · <code style="font-size:10px;">${model.name}</code></span>
-            </div>
-            <div class="model-card-badges">
-              ${isFav ? '<span class="model-badge-fav" title="Favorited">★</span>' : ''}
-              <span class="badge-machine-fit ${fit.badge_class}">${fit.badge}</span>
-            </div>
-          </div>
-
-          <p class="model-card-desc">${model.description || "High-performance model for workspace automation, coding, and chat."}</p>
-
-          <div class="model-hw-metrics">
-            <div class="hw-metric-cell">
-              <span class="hw-metric-label">RAM Req</span>
-              <span class="hw-metric-val">${isCloud ? "0 MB" : `${hw.rec_ram_gb || hw.min_ram_gb || 4} GB`}</span>
-            </div>
-            <div class="hw-metric-cell">
-              <span class="hw-metric-label">Est. Speed</span>
-              <span class="hw-metric-val" style="color:var(--accent);">${hw.estimated_tokens_per_sec || (isCloud ? "~120 tok/s" : "~45 tok/s")}</span>
-            </div>
-            <div class="hw-metric-cell">
-              <span class="hw-metric-label">Latency</span>
-              <span class="hw-metric-val">${hw.time_to_first_token_ms || (isCloud ? "<200ms" : "~350ms")}</span>
-            </div>
-            <div class="hw-metric-cell">
-              <span class="hw-metric-label">Context</span>
-              <span class="hw-metric-val">${model.context_window || "32k"}</span>
-            </div>
-          </div>
-
-          <div class="model-card-tags">
-            ${(model.tags || []).map(t => `<span class="model-card-tag">#${t}</span>`).join("")}
-          </div>
-
-          <div class="model-card-footer">
-            <span class="model-card-specs-brief">${model.parameter_size || "Standard"} · ${model.quantization_level || (isCloud ? "Cloud API" : "GGUF")}</span>
-            <div class="model-card-buttons">
-              <button type="button" class="secondary btn-model-specs" data-model="${model.name}" title="View Machine Compatibility & Technical Specs">Specs</button>
-              ${isActive
-                ? '<button type="button" class="primary" disabled style="opacity:0.8;">Active</button>'
-                : (isCloud || model.installed
-                    ? `<button type="button" class="primary btn-model-activate" data-model="${model.name}">Switch</button>`
-                    : `<button type="button" class="secondary btn-model-pull" data-model="${model.name}">Pull (${model.download_size_est || "Download"})</button>`
-                  )
-              }
-            </div>
-          </div>
-        </article>
-      `;
-    }).join("");
-
-    list.innerHTML = `${hostBannerHtml}${cardsHtml}`;
-
-    // Bind event handlers inside workspace panel
-    list.querySelectorAll(".btn-model-activate").forEach(btn => {
-      btn.onclick = () => modelHub.setActiveModel(btn.dataset.model);
-    });
-    list.querySelectorAll(".btn-model-specs").forEach(btn => {
-      btn.onclick = () => modelHub.openSpecsModal(btn.dataset.model);
-    });
-    list.querySelectorAll(".btn-model-pull").forEach(btn => {
-      btn.onclick = () => modelHub.pullModel(btn.dataset.model);
-    });
-  },
-
-  setActiveModel(modelName) {
-    if (!modelName) return;
-    state.model = modelName;
-    storage.set("model", state.model);
-
-    const select = document.getElementById("model-select");
-    if (select) select.value = state.model;
-
-    const found = this.cachedCatalog.find(m => m.name === modelName);
-    this.renderActiveHero(found || { name: modelName });
-    updateFavoriteButton();
-    updateSendState();
-
-    // Re-render workspace panel if visible
-    this.renderWorkspacePanel(this.activeCategoryFilter);
-
-    notify("success", `Active model switched to ${found?.display_name || modelName}`);
-  },
-
-  toggleFavorite(modelName) {
-    if (!modelName) return;
-    state.favoriteModels = state.favoriteModels.includes(modelName)
-      ? state.favoriteModels.filter(n => n !== modelName)
-      : [...state.favoriteModels, modelName];
-    storage.set("favorite-models", JSON.stringify(state.favoriteModels));
-    updateFavoriteButton();
-    this.populateDropdown(this.cachedCatalog, document.getElementById("model-search")?.value || "");
-    this.renderWorkspacePanel(this.activeCategoryFilter);
-  },
-
-  openHubModal(initialCategory = "all") {
-    let currentCat = initialCategory;
-    const renderHubGrid = (cat, search = "") => {
-      const q = search.toLowerCase().trim();
-      let list = this.cachedCatalog;
-      if (cat === "favorites") list = list.filter(m => state.favoriteModels.includes(m.name));
-      else if (cat === "cloud") list = list.filter(m => m.category === "cloud" || m.provider === "google" || m.provider === "minimax" || m.name.includes(":cloud"));
-      else if (cat === "installed") list = list.filter(m => m.installed);
-      else if (cat === "best_fit") list = list.filter(m => m.machine_fit?.status === "optimal" || m.machine_fit?.status === "cloud_zero_load");
-      else if (cat !== "all") list = list.filter(m => m.category === cat || (m.tags && m.tags.includes(cat)));
-
-      if (q) {
-        list = list.filter(m =>
-          m.name.toLowerCase().includes(q) ||
-          (m.display_name && m.display_name.toLowerCase().includes(q)) ||
-          (m.provider_display && m.provider_display.toLowerCase().includes(q)) ||
-          (m.description && m.description.toLowerCase().includes(q)) ||
-          (m.tags && m.tags.some(t => t.toLowerCase().includes(q))) ||
-          (m.machine_fit?.recommendation && m.machine_fit.recommendation.toLowerCase().includes(q))
-        );
-      }
-
-      if (!list.length) {
-        return '<p class="empty-state" style="grid-column: 1 / -1;">No matching models found in this category.</p>';
-      }
-
-      return list.map(m => {
-        const isActive = m.name === state.model;
-        const isFav = state.favoriteModels.includes(m.name);
-        const isCloud = m.category === "cloud" || m.provider === "google" || m.provider === "minimax" || m.name.includes(":cloud");
-        const fit = m.machine_fit || {
-          badge: isCloud ? "☁️ Zero Local RAM" : "⚡ Local Execution",
-          badge_class: isCloud ? "badge-fit-cloud" : "badge-fit-optimal",
-          recommendation: isCloud ? "Runs over cloud connection with 0 MB local host memory required." : "Runs locally on your host."
-        };
-        const hw = m.hardware_profile || {};
-
-        return `
-          <div class="modal-hub-model-box ${isActive ? 'is-active' : ''}">
-            <div>
-              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-                <span class="model-provider-badge">${m.provider_display || (isCloud ? "Cloud" : "Local")}</span>
-                <button type="button" class="icon-button hub-fav-btn" data-model="${m.name}" title="Toggle Favorite" style="padding:0; border:0; font-size:14px; color:${isFav ? '#f59e0b' : 'var(--text-muted)'}; background:transparent;">${isFav ? '★' : '☆'}</button>
-              </div>
-              <h4 style="display:flex; align-items:center; justify-content:space-between; gap:6px;">
-                <span>${m.display_name || m.name}</span>
-                <span class="badge-machine-fit ${fit.badge_class}" style="font-size:9px; padding:1px 6px;">${fit.badge}</span>
-              </h4>
-              <p style="margin-top:4px;">${m.description || ""}</p>
-              
-              <div class="model-hw-metrics" style="margin-top:6px;">
-                <div class="hw-metric-cell">
-                  <span class="hw-metric-label">RAM Req</span>
-                  <span class="hw-metric-val">${isCloud ? "0 MB" : `${hw.rec_ram_gb || hw.min_ram_gb || 4} GB`}</span>
-                </div>
-                <div class="hw-metric-cell">
-                  <span class="hw-metric-label">Speed</span>
-                  <span class="hw-metric-val" style="color:var(--accent);">${hw.estimated_tokens_per_sec || (isCloud ? "~120 t/s" : "~45 t/s")}</span>
-                </div>
-                <div class="hw-metric-cell">
-                  <span class="hw-metric-label">Context</span>
-                  <span class="hw-metric-val">${m.context_window || "32k"}</span>
-                </div>
-              </div>
-            </div>
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px; border-top:1px solid var(--border); padding-top:8px;">
-              <button type="button" class="secondary hub-specs-btn" data-model="${m.name}" style="font-size:11px; padding:3px 8px; width:auto;">Specs</button>
-              ${isActive
-                ? '<span class="badge" style="background:var(--accent); color:#fff; font-size:10px;">Active</span>'
-                : (isCloud || m.installed
-                    ? `<button type="button" class="primary hub-switch-btn" data-model="${m.name}" style="font-size:11px; padding:4px 10px; width:auto;">Select</button>`
-                    : `<button type="button" class="secondary hub-pull-btn" data-model="${m.name}" style="font-size:11px; padding:4px 8px; width:auto;">Pull (${m.download_size_est || "Download"})</button>`
-                  )
-              }
-            </div>
-          </div>
-        `;
-      }).join("");
-    };
-
-    const hostBannerHtml = this.renderHostHardwareBanner("modal-host-banner");
-
-    showModal(
-      "✨ AI Model Hub & Machine Compatibility",
-      `
-      ${hostBannerHtml}
-      <div class="modal-hub-search-bar">
-        <input id="modal-hub-search-input" placeholder="Search models by name, machine fit, tags, architecture, provider…" autofocus />
-      </div>
-      <div class="models-tab-filter-pills" id="modal-hub-filter-pills" style="margin-bottom: 12px;">
-        <button class="filter-pill ${currentCat === 'all' ? 'active' : ''}" data-cat="all">All</button>
-        <button class="filter-pill ${currentCat === 'favorites' ? 'active' : ''}" data-cat="favorites">★ Favorites</button>
-        <button class="filter-pill ${currentCat === 'best_fit' ? 'active' : ''}" data-cat="best_fit">⚡ Best Machine Fit</button>
-        <button class="filter-pill ${currentCat === 'cloud' ? 'active' : ''}" data-cat="cloud">☁️ Cloud Frontier</button>
-        <button class="filter-pill ${currentCat === 'installed' ? 'active' : ''}" data-cat="installed">💻 Local Installed</button>
-        <button class="filter-pill ${currentCat === 'reasoning' ? 'active' : ''}" data-cat="reasoning">🧠 Reasoning</button>
-        <button class="filter-pill ${currentCat === 'coding' ? 'active' : ''}" data-cat="coding">💻 Coding</button>
-        <button class="filter-pill ${currentCat === 'vision' ? 'active' : ''}" data-cat="vision">👁️ Vision</button>
-      </div>
-      <div class="modal-hub-body" id="modal-hub-grid">
-        ${renderHubGrid(currentCat)}
-      </div>
-      `,
-      `
-      <div class="modal-actions" style="justify-content:space-between; align-items:center;">
-        <button type="button" class="secondary" id="modal-pull-custom-btn" style="width:auto;">＋ Pull Custom Model</button>
-        <button type="button" class="primary modal-close" style="width:auto;">Done</button>
-      </div>
-      `
-    );
-
-    // Expand modal card sizing for Model Hub
-    document.querySelector("#modal .modal-card")?.classList.add("modal-model-hub");
-
-    const grid = document.getElementById("modal-hub-grid");
-    const searchInput = document.getElementById("modal-hub-search-input");
-    const pills = document.querySelectorAll("#modal-hub-filter-pills .filter-pill");
-
-    const refreshGrid = () => {
-      if (grid) {
-        grid.innerHTML = renderHubGrid(currentCat, searchInput?.value || "");
-        bindGridActions();
-      }
-    };
-
-    const bindGridActions = () => {
-      grid.querySelectorAll(".hub-switch-btn").forEach(btn => {
-        btn.onclick = () => {
-          modelHub.setActiveModel(btn.dataset.model);
-          refreshGrid();
-        };
-      });
-      grid.querySelectorAll(".hub-fav-btn").forEach(btn => {
-        btn.onclick = () => {
-          modelHub.toggleFavorite(btn.dataset.model);
-          refreshGrid();
-        };
-      });
-      grid.querySelectorAll(".hub-specs-btn").forEach(btn => {
-        btn.onclick = () => {
-          modelHub.openSpecsModal(btn.dataset.model);
-        };
-      });
-      grid.querySelectorAll(".hub-pull-btn").forEach(btn => {
-        btn.onclick = () => {
-          modelHub.pullModel(btn.dataset.model);
-        };
-      });
-    };
-
-    pills.forEach(pill => {
-      pill.onclick = () => {
-        pills.forEach(p => p.classList.remove("active"));
-        pill.classList.add("active");
-        currentCat = pill.dataset.cat;
-        refreshGrid();
-      };
-    });
-
-    if (searchInput) {
-      let timer;
-      searchInput.oninput = () => {
-        clearTimeout(timer);
-        timer = setTimeout(refreshGrid, 120);
-      };
-    }
-
-    document.getElementById("modal-pull-custom-btn")?.addEventListener("click", () => {
-      const custom = prompt("Enter Ollama model tag to pull (e.g. llama3.1, deepseek-r1:14b, mistral, codellama):");
-      if (custom?.trim()) {
-        modelHub.pullModel(custom.trim());
-      }
-    });
-
-    bindGridActions();
-  },
-
-  async openSpecsModal(modelName) {
-    let model = this.cachedCatalog.find(m => m.name === modelName);
-    if (!model) {
-      try {
-        model = await api.model(modelName);
-      } catch {
-        model = { name: modelName, display_name: modelName };
-      }
-    }
-
-    const isCloud = model.category === "cloud" || model.provider === "google" || model.provider === "minimax" || model.name.includes(":cloud");
-    const caps = model.capabilities || ["chat", "streaming"];
-    const useCases = model.use_cases || ["General reasoning and workspace execution"];
-    const tags = model.tags || [];
-    const hw = model.hardware_profile || {};
-    const fit = model.machine_fit || {
-      badge: isCloud ? "☁️ Zero Local Hardware Load (Cloud)" : "⚡ Local Execution",
-      badge_class: isCloud ? "badge-fit-cloud" : "badge-fit-optimal",
-      headline: isCloud ? "Frontier Cloud Inference — 0 MB Local RAM / VRAM used" : "Runs locally on this machine with direct hardware offloading",
-      recommendation: isCloud ? "Executes over encrypted cloud connection. Local host CPU, RAM, and GPU remain 100% free." : "Executes locally via Ollama. Performance depends on host RAM and GPU VRAM."
-    };
-    const scores = hw.benchmark_scores || { coding: 90, reasoning: 92, speed: 95, context: 95 };
-
-    showModal(
-      `🔬 Model Specs & Machine Execution: ${model.display_name || model.name}`,
-      `
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-        <span style="color:var(--text); font-weight:600; font-size:13px;">${model.display_name || model.name}</span>
-        <span class="badge-machine-fit ${fit.badge_class}">${fit.badge}</span>
-      </div>
-      <p style="color:var(--text-muted); font-size:12px; margin:0 0 10px;">${model.description || "Specifications, hardware requirements, and execution details."}</p>
-      
-      <!-- Machine Fit & Execution Profile -->
-      <div class="machine-run-card">
-        <div class="machine-run-header">
-          <span class="machine-run-title">🖥️ How This Model Runs On Your Machine</span>
-          <span style="font-size:10px; font-family:var(--mono); color:var(--accent);">${hw.execution_type === 'cloud_api' ? 'Cloud Cluster' : 'Local Host'}</span>
-        </div>
-        <p style="font-weight:600; font-size:12px; color:var(--text); margin:2px 0;">${fit.headline || ""}</p>
-        <p class="machine-run-rec">${fit.recommendation || ""}</p>
-        
-        <div class="model-hw-metrics" style="margin-top:6px;">
-          <div class="hw-metric-cell">
-            <span class="hw-metric-label">Min RAM</span>
-            <span class="hw-metric-val">${isCloud ? "0 MB" : `${hw.min_ram_gb || 4} GB`}</span>
-          </div>
-          <div class="hw-metric-cell">
-            <span class="hw-metric-label">Rec RAM</span>
-            <span class="hw-metric-val">${isCloud ? "0 MB" : `${hw.rec_ram_gb || 8} GB`}</span>
-          </div>
-          <div class="hw-metric-cell">
-            <span class="hw-metric-label">VRAM Target</span>
-            <span class="hw-metric-val">${isCloud ? "0 GB" : `${hw.rec_vram_gb || 0} GB`}</span>
-          </div>
-          <div class="hw-metric-cell">
-            <span class="hw-metric-label">Est. Speed</span>
-            <span class="hw-metric-val" style="color:var(--accent);">${hw.estimated_tokens_per_sec || "~80 tok/s"}</span>
-          </div>
-          <div class="hw-metric-cell">
-            <span class="hw-metric-label">TTFT Latency</span>
-            <span class="hw-metric-val">${hw.time_to_first_token_ms || "<200ms"}</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- Technical Architecture Specs Grid -->
-      <div class="spec-grid" style="margin-top:10px;">
-        <div class="spec-item">
-          <span class="spec-label">Model Identifier</span>
-          <span class="spec-value">${model.name}</span>
-        </div>
-        <div class="spec-item">
-          <span class="spec-label">Provider & Architecture</span>
-          <span class="spec-value">${model.provider_display || (isCloud ? "Cloud Frontier" : "Open-Weights")}</span>
-        </div>
-        <div class="spec-item">
-          <span class="spec-label">Parameter Size</span>
-          <span class="spec-value">${model.parameter_size || (isCloud ? "Frontier Scale" : "Standard")}</span>
-        </div>
-        <div class="spec-item">
-          <span class="spec-label">Context Window</span>
-          <span class="spec-value" style="color:var(--accent); font-weight:600;">${model.context_window || "32,000 tokens"}</span>
-        </div>
-        <div class="spec-item">
-          <span class="spec-label">Quantization / Delivery</span>
-          <span class="spec-value">${model.quantization_level || (isCloud ? "Cloud API (Zero VRAM)" : "GGUF Q4_K_M")}</span>
-        </div>
-        <div class="spec-item">
-          <span class="spec-label">Installation Status</span>
-          <span class="spec-value">${isCloud ? "Cloud Active (Instant)" : (model.installed ? "Local Ready" : "Available to Pull")}</span>
-        </div>
-      </div>
-
-      <!-- Performance Benchmark Meters -->
-      <div style="margin-top:10px; background:var(--surface-raised); padding:10px 12px; border-radius:var(--radius-md); border:1px solid var(--border);">
-        <span class="spec-label" style="display:block; margin-bottom:6px;">Performance Benchmark Indices</span>
-        <div class="benchmark-row">
-          <span class="benchmark-label">Coding</span>
-          <div class="benchmark-track"><div class="benchmark-fill" style="width:${scores.coding}%;"></div></div>
-          <span class="benchmark-val">${scores.coding}%</span>
-        </div>
-        <div class="benchmark-row">
-          <span class="benchmark-label">Reasoning</span>
-          <div class="benchmark-track"><div class="benchmark-fill" style="width:${scores.reasoning}%; background: #10b981;"></div></div>
-          <span class="benchmark-val">${scores.reasoning}%</span>
-        </div>
-        <div class="benchmark-row">
-          <span class="benchmark-label">Speed/TTFT</span>
-          <div class="benchmark-track"><div class="benchmark-fill" style="width:${scores.speed}%; background: #f59e0b;"></div></div>
-          <span class="benchmark-val">${scores.speed}%</span>
-        </div>
-        <div class="benchmark-row">
-          <span class="benchmark-label">Context Depth</span>
-          <div class="benchmark-track"><div class="benchmark-fill" style="width:${scores.context}%; background: #8b5cf6;"></div></div>
-          <span class="benchmark-val">${scores.context}%</span>
-        </div>
-      </div>
-
-      <div style="margin-top:10px;">
-        <span class="spec-label">Model Capabilities</span>
-        <div class="spec-caps-list">
-          ${caps.map(c => `<span class="spec-cap-pill">✓ ${c}</span>`).join("")}
-        </div>
-      </div>
-
-      <div style="margin-top:10px;">
-        <span class="spec-label">Recommended Use Cases</span>
-        <ul style="margin:4px 0 0 16px; padding:0; font-size:12px; color:var(--text-muted);">
-          ${useCases.map(u => `<li>${u}</li>`).join("")}
-        </ul>
-      </div>
-
-      <div style="margin-top:10px;">
-        <span class="spec-label">Category Tags</span>
-        <div style="display:flex; gap:4px; flex-wrap:wrap; margin-top:4px;">
-          ${tags.map(t => `<span class="model-card-tag">#${t}</span>`).join("")}
-        </div>
-      </div>
-      `,
-      `
-      <div class="modal-actions">
-        ${model.name !== state.model
-          ? (isCloud || model.installed
-              ? `<button type="button" class="primary" id="modal-specs-activate" data-model="${model.name}">Activate This Model</button>`
-              : `<button type="button" class="primary" id="modal-specs-pull" data-model="${model.name}">Pull Model (${model.download_size_est || "Download"})</button>`
-            )
-          : '<button type="button" class="secondary" disabled>Currently Active Model</button>'
-        }
-        <button type="button" class="secondary modal-close">Close</button>
-      </div>
-      `
-    );
-
-    document.getElementById("modal-specs-activate")?.addEventListener("click", (e) => {
-      modelHub.setActiveModel(e.currentTarget.dataset.model);
-      closeModal();
-    });
-    document.getElementById("modal-specs-pull")?.addEventListener("click", (e) => {
-      modelHub.pullModel(e.currentTarget.dataset.model);
-      closeModal();
-    });
-  },
-
-  async pullModel(name) {
-    if (!name?.trim()) return;
-    const trimmed = name.trim();
-    notify("info", `Initiating download for ${trimmed}…`);
-
-    const pullBtn = document.getElementById("pull-model");
-    if (pullBtn) {
-      pullBtn.disabled = true;
-      pullBtn.textContent = `Pulling ${trimmed}…`;
-    }
-
-    try {
-      const res = await api.pullModel(trimmed);
-      if (!res.ok && res.status !== 200) {
-        throw new Error(`Download request failed: ${res.statusText}`);
-      }
-
-      const reader = res.body?.getReader();
-      if (!reader) throw new Error("Stream response unavailable");
-
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let latestStatus = "Starting pull…";
-
-      while (true) {
-        const { value, done } = await reader.read();
-        buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
-        const blocks = buffer.split("\n\n");
-        buffer = blocks.pop() || "";
-
-        for (const block of blocks) {
-          const line = block.split("\n").find(x => x.startsWith("data: "));
-          if (line) {
-            try {
-              const parsed = JSON.parse(line.slice(6));
-              if (parsed.status) {
-                latestStatus = parsed.status;
-                if (parsed.completed && parsed.total) {
-                  const pct = Math.round((parsed.completed / parsed.total) * 100);
-                  latestStatus = `${parsed.status} (${pct}%)`;
-                }
-              }
-            } catch {}
-          }
-        }
-
-        if (pullBtn) pullBtn.textContent = latestStatus;
-        if (done) break;
-      }
-
-      notify("success", `Model ${trimmed} successfully installed and ready!`);
-      await loadModels();
-      modelHub.setActiveModel(trimmed);
-    } catch (err) {
-      notify("error", `Model pull failed: ${err.message}`);
-    } finally {
-      if (pullBtn) {
-        pullBtn.disabled = false;
-        pullBtn.textContent = "＋ Pull model";
-      }
-    }
-  },
-};
-
 async function loadModels() {
   state.modelRequest?.abort();
   state.modelRequest = new AbortController();
-  const searchInput = document.getElementById("model-search");
-  const clearBtn = document.getElementById("model-search-clear");
-  if (clearBtn && searchInput) {
-    clearBtn.classList.toggle("hidden", !searchInput.value);
-  }
-
-  setStatus("", "Checking models & connection…");
+  const select = document.getElementById("model-select");
+  setStatus("", "Checking connection…");
   try {
-    await modelHub.fetchHardwareInfo();
-    const models = await api.models("", state.modelRequest.signal);
-    modelHub.cachedCatalog = models;
-
-    modelHub.populateDropdown(models, searchInput?.value || "");
-
-    // If current model is not set or not in catalog, fallback to MiniMax M3 default
-    if (!state.model || !models.some(m => m.name === state.model)) {
+    const models = await api.models(document.getElementById("model-search")?.value || "", state.modelRequest.signal);
+    select.innerHTML = "";
+    models.forEach(model => {
+      const option = document.createElement("option");
+      option.value = model.name;
+      const isGemini = model.name.startsWith("gemini") || model.name.startsWith("imagen");
+      const isCloud = isGemini || model.name.includes(":cloud") || model.family === "cloud";
+      const badge = isGemini ? "✨ " : (model.name.includes(":cloud") ? "☁️ " : "");
+      const typeLabel = isCloud ? "Cloud AI" : formatBytes(model.size);
+      option.textContent = `${state.favoriteModels.includes(model.name) ? "★ " : ""}${badge}${model.name} · ${typeLabel}`;
+      select.appendChild(option);
+    });
+    if (!state.model || state.model !== "minimax-m3:cloud" || !models.some(m => m.name === state.model)) {
       const preferred = models.find(m => m.name === "minimax-m3:cloud") || models[0];
       if (preferred) {
         state.model = preferred.name;
         storage.set("model", state.model);
       }
     }
-
-    const currentObj = models.find(m => m.name === state.model) || { name: state.model };
-    modelHub.renderActiveHero(currentObj);
-    modelHub.renderWorkspacePanel(modelHub.activeCategoryFilter, document.getElementById("tab-model-search")?.value || "");
-
+    select.value = state.model;
+    document.getElementById("current-model").textContent = state.model || "No model";
     updateFavoriteButton();
     updateSendState();
-    setStatus("online", `Ready · ${models.length} models available`);
+    setStatus("online", `Ready · ${models.length} model${models.length === 1 ? "" : "s"}`);
   } catch (error) {
     if (error.name === "AbortError") return;
-    const select = document.getElementById("model-select");
-    if (select) select.innerHTML = "<option value=''>Model server offline</option>";
+    select.innerHTML = "<option value=''>Model server offline</option>";
     document.getElementById("current-model").textContent = "No model";
     updateSendState();
     setStatus("offline", "Server offline");
@@ -1269,7 +582,6 @@ function selectTab(name) {
   });
   document.querySelectorAll(".tab-panel").forEach(panel => panel.classList.toggle("active", panel.id === `tab-${name}`));
   storage.set("tab", name);
-  if (name === "models") modelHub.renderWorkspacePanel(modelHub.activeCategoryFilter);
   if (name === "configure") configure.load();
   if (name === "integrations") integrations.load();
 }
@@ -1318,84 +630,69 @@ function bindWelcomeCards() {
 }
 
 document.getElementById("model-select").onchange = event => {
-  modelHub.setActiveModel(event.target.value);
+  state.model = event.target.value;
+  storage.set("model", state.model);
+  document.getElementById("current-model").textContent = state.model || "No model";
+  updateFavoriteButton();
+  updateSendState();
 };
-
 document.getElementById("favorite-model").onclick = () => {
   if (!state.model) return;
-  modelHub.toggleFavorite(state.model);
+  state.favoriteModels = state.favoriteModels.includes(state.model)
+    ? state.favoriteModels.filter(name => name !== state.model)
+    : [...state.favoriteModels, state.model];
+  storage.set("favorite-models", JSON.stringify(state.favoriteModels));
+  updateFavoriteButton(); loadModels();
 };
-
 function updateFavoriteButton() {
   const button = document.getElementById("favorite-model");
-  if (!button) return;
   const favorite = state.favoriteModels.includes(state.model);
   button.textContent = favorite ? "★ Favorited" : "☆ Favorite";
   button.setAttribute("aria-pressed", String(favorite));
 }
-
 document.getElementById("refresh-models").onclick = loadModels;
-
-// Model Hub & Hero Card Triggers
-document.getElementById("open-model-hub-btn")?.addEventListener("click", () => modelHub.openHubModal("all"));
-document.getElementById("browse-model-hub")?.addEventListener("click", () => modelHub.openHubModal("all"));
-document.getElementById("active-model-card")?.addEventListener("click", () => modelHub.openHubModal("all"));
-document.getElementById("current-model")?.addEventListener("click", () => modelHub.openHubModal("all"));
-
-// Models Tab Filter Pills in Workspace Panel
-document.querySelectorAll("#tab-model-filters .filter-pill").forEach(pill => {
-  pill.addEventListener("click", () => {
-    document.querySelectorAll("#tab-model-filters .filter-pill").forEach(p => p.classList.remove("active"));
-    pill.classList.add("active");
-    modelHub.renderWorkspacePanel(pill.dataset.cat);
-  });
-});
-
-// Models Tab Search in Workspace Panel
-document.getElementById("tab-model-search")?.addEventListener("input", (e) => {
-  modelHub.renderWorkspacePanel(modelHub.activeCategoryFilter, e.target.value);
-});
-
-// Models Tab Refresh
-document.getElementById("tab-refresh-models")?.addEventListener("click", loadModels);
-
-// Search and Clear in Sidebar
-const searchInput = document.getElementById("model-search");
-const searchClearBtn = document.getElementById("model-search-clear");
-if (searchInput) {
-  searchInput.oninput = (() => {
-    let timer;
-    return () => {
-      clearTimeout(timer);
-      timer = setTimeout(() => {
-        if (searchClearBtn) searchClearBtn.classList.toggle("hidden", !searchInput.value);
-        modelHub.populateDropdown(modelHub.cachedCatalog, searchInput.value);
-      }, 150);
-    };
-  })();
-}
-if (searchClearBtn && searchInput) {
-  searchClearBtn.onclick = () => {
-    searchInput.value = "";
-    searchClearBtn.classList.add("hidden");
-    modelHub.populateDropdown(modelHub.cachedCatalog, "");
-    searchInput.focus();
-  };
-}
-
 window.addEventListener("offline", () => setStatus("offline", "Browser offline"));
 window.addEventListener("online", () => { setStatus("", "Rechecking connection…"); loadModels(); });
 window.setInterval(() => { if (document.visibilityState !== "hidden" && !document.querySelector(".status-dot.busy")) loadModels(); }, 60000);
 
-document.getElementById("model-details").onclick = () => {
+document.getElementById("model-details").onclick = async () => {
   if (!state.model) return;
-  modelHub.openSpecsModal(state.model);
+  try {
+    const m = await api.model(state.model);
+    showModal(m.name, `<p>Family: ${m.family || "unknown"}</p><p>Parameters: ${m.parameter_size || "unknown"}</p><p>Quantization: ${m.quantization_level || "unknown"}</p><p>Size: ${formatBytes(m.size)}</p><p>Capabilities: ${m.capabilities.join(", ")}</p><p>Recommended use: ${m.use_cases.join(", ")}</p>`, '<div class="modal-actions"><button class="primary modal-close">Close</button></div>');
+  } catch (e) { notify("error", e.message); }
 };
 
-document.getElementById("pull-model").onclick = () => {
-  const name = prompt("Ollama model name or tag to pull (e.g., llama3.1, deepseek-r1:14b, mistral, codellama):", "llama3.1");
-  if (name?.trim()) {
-    modelHub.pullModel(name.trim());
+document.getElementById("pull-model").onclick = async () => {
+  const name = prompt("Ollama model name to pull", "llama3.1");
+  if (!name?.trim()) return;
+  const button = document.getElementById("pull-model");
+  button.disabled = true;
+  try {
+    const res = await api.pullModel(name.trim());
+    const reader = res.body.getReader(), decoder = new TextDecoder();
+    let buffer = "", latest = "Starting pull…";
+    while (true) {
+      const { value, done } = await reader.read();
+      buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+      const blocks = buffer.split("\n\n");
+      buffer = blocks.pop() || "";
+      blocks.forEach(block => {
+        const line = block.split("\n").find(x => x.startsWith("data: "));
+        if (line) {
+          try { latest = JSON.parse(line.slice(6)).status || latest; } catch {}
+        }
+      });
+      if (done) break;
+      button.textContent = latest;
+    }
+    notify("success", `${name} is ready`);
+    await loadModels();
+  } catch (e) {
+    notify("error", `Model pull failed: ${e.message}`);
+  } finally {
+    button.disabled = false;
+    button.textContent = "＋ Pull model";
   }
 };
 
@@ -1911,11 +1208,6 @@ input.addEventListener("input", () => {
 input.addEventListener("input", saveDraft);
 
 document.addEventListener("keydown", event => {
-  if ((event.ctrlKey || event.metaKey) && (event.key === "m" || event.key === "M")) {
-    event.preventDefault();
-    modelHub.openHubModal("all");
-    return;
-  }
   if (event.key === "Escape") {
     if (!document.getElementById("modal").classList.contains("hidden")) { closeModal(); return; }
   } else return;

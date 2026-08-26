@@ -1,10 +1,17 @@
 package com.minio.mobile
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
@@ -12,11 +19,14 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
@@ -25,6 +35,8 @@ import com.minio.mobile.data.ScreenTab
 import com.minio.mobile.ui.screens.*
 import com.minio.mobile.ui.theme.*
 import com.minio.mobile.viewmodel.MiniOViewModel
+import com.minio.mobile.voice.VoiceAssistantManager
+import com.minio.mobile.voice.VoiceState
 import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
@@ -41,6 +53,31 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun MiniOMainApp(vm: MiniOViewModel = viewModel()) {
     val context = LocalContext.current
+
+    DisposableEffect(Unit) {
+        val voiceMgr = VoiceAssistantManager(
+            context = context,
+            onStateChanged = { vm.voiceState = it },
+            onRmsChanged = { vm.voiceRmsDb = it },
+            onSpeechResult = { vm.onVoiceInput(it) },
+            onError = { vm.showToast(it) }
+        )
+        vm.voiceAssistantManager = voiceMgr
+        onDispose {
+            voiceMgr.destroy()
+        }
+    }
+
+    val audioPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            vm.toggleVoice()
+        } else {
+            vm.showToast("Microphone permission is needed for voice chat.")
+        }
+    }
+
     val prefs = remember {
         runCatching {
             val key = MasterKey.Builder(context)
@@ -99,8 +136,10 @@ fun MiniOMainApp(vm: MiniOViewModel = viewModel()) {
                     bottomBar = {
                         NavigationBar(
                             containerColor = SurfacePanel,
-                            tonalElevation = 8.dp
+                            tonalElevation = 8.dp,
+                            modifier = Modifier.height(76.dp)
                         ) {
+                            // 1. Chat
                             NavigationBarItem(
                                 selected = vm.currentTab == ScreenTab.CHAT,
                                 onClick = { vm.currentTab = ScreenTab.CHAT },
@@ -120,6 +159,7 @@ fun MiniOMainApp(vm: MiniOViewModel = viewModel()) {
                                 )
                             )
 
+                            // 2. Files
                             NavigationBarItem(
                                 selected = vm.currentTab == ScreenTab.WORKSPACE,
                                 onClick = { vm.currentTab = ScreenTab.WORKSPACE },
@@ -139,6 +179,24 @@ fun MiniOMainApp(vm: MiniOViewModel = viewModel()) {
                                 )
                             )
 
+                            // 3. DEAD CENTER: Mic / Voice Button
+                            CenterVoiceNavButton(
+                                voiceState = vm.voiceState,
+                                onClick = {
+                                    val hasAudioPerm = ContextCompat.checkSelfPermission(
+                                        context,
+                                        Manifest.permission.RECORD_AUDIO
+                                    ) == PackageManager.PERMISSION_GRANTED
+
+                                    if (hasAudioPerm) {
+                                        vm.toggleVoice()
+                                    } else {
+                                        audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                    }
+                                }
+                            )
+
+                            // 4. System
                             NavigationBarItem(
                                 selected = vm.currentTab == ScreenTab.DIAGNOSTICS,
                                 onClick = { vm.currentTab = ScreenTab.DIAGNOSTICS },
@@ -158,6 +216,7 @@ fun MiniOMainApp(vm: MiniOViewModel = viewModel()) {
                                 )
                             )
 
+                            // 5. Settings
                             NavigationBarItem(
                                 selected = vm.currentTab == ScreenTab.SETTINGS,
                                 onClick = { vm.currentTab = ScreenTab.SETTINGS },
@@ -227,3 +286,105 @@ fun MiniOMainApp(vm: MiniOViewModel = viewModel()) {
         }
     }
 }
+
+@Composable
+fun RowScope.CenterVoiceNavButton(
+    voiceState: VoiceState,
+    onClick: () -> Unit
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "voice_pulse")
+    val pulseScale by infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = if (voiceState == VoiceState.LISTENING) 1.22f else 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(650, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulse_scale"
+    )
+    val pulseAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.6f,
+        targetValue = if (voiceState == VoiceState.LISTENING) 0.15f else 0.6f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(650, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulse_alpha"
+    )
+
+    Column(
+        modifier = Modifier
+            .weight(1f)
+            .fillMaxHeight()
+            .clickable(onClick = onClick),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier.size(46.dp)
+        ) {
+            if (voiceState == VoiceState.LISTENING) {
+                Box(
+                    modifier = Modifier
+                        .size(46.dp)
+                        .scale(pulseScale)
+                        .clip(CircleShape)
+                        .background(DangerRed.copy(alpha = pulseAlpha))
+                )
+            } else if (voiceState == VoiceState.SPEAKING) {
+                Box(
+                    modifier = Modifier
+                        .size(46.dp)
+                        .scale(pulseScale)
+                        .clip(CircleShape)
+                        .background(SecondaryTeal.copy(alpha = 0.25f))
+                )
+            }
+
+            Surface(
+                shape = CircleShape,
+                color = when (voiceState) {
+                    VoiceState.LISTENING -> DangerRed
+                    VoiceState.SPEAKING -> SecondaryTeal
+                    VoiceState.PROCESSING -> AccentOrange
+                    VoiceState.IDLE -> PrimaryBlue
+                },
+                shadowElevation = 6.dp,
+                modifier = Modifier.size(38.dp)
+            ) {
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    when (voiceState) {
+                        VoiceState.LISTENING -> Icon(Icons.Rounded.Mic, contentDescription = null, tint = Color.White, modifier = Modifier.size(22.dp))
+                        VoiceState.SPEAKING -> Icon(Icons.Rounded.GraphicEq, contentDescription = null, tint = Color(0xFF002A24), modifier = Modifier.size(22.dp))
+                        VoiceState.PROCESSING -> CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = Color.White)
+                        VoiceState.IDLE -> Icon(Icons.Rounded.Mic, contentDescription = null, tint = Color(0xFF001A4E), modifier = Modifier.size(22.dp))
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(3.dp))
+
+        Text(
+            text = when (voiceState) {
+                VoiceState.LISTENING -> "Listening"
+                VoiceState.SPEAKING -> "Speaking"
+                VoiceState.PROCESSING -> "Thinking"
+                VoiceState.IDLE -> "Voice"
+            },
+            fontSize = 10.sp,
+            fontWeight = if (voiceState != VoiceState.IDLE) FontWeight.Bold else FontWeight.Medium,
+            color = when (voiceState) {
+                VoiceState.LISTENING -> DangerRed
+                VoiceState.SPEAKING -> SecondaryTeal
+                VoiceState.PROCESSING -> AccentOrange
+                VoiceState.IDLE -> TextMuted
+            }
+        )
+    }
+}
+

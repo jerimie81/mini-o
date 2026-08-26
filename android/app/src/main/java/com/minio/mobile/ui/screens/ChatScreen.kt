@@ -29,6 +29,7 @@ import com.minio.mobile.ui.components.SimpleMarkdownView
 import com.minio.mobile.ui.components.StatusBadge
 import com.minio.mobile.ui.theme.*
 import com.minio.mobile.viewmodel.MiniOViewModel
+import com.minio.mobile.voice.VoiceState
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -143,6 +144,21 @@ fun ChatScreen(vm: MiniOViewModel) {
 
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     IconButton(
+                        onClick = {
+                            vm.isVoiceOutputEnabled = !vm.isVoiceOutputEnabled
+                            vm.showToast(if (vm.isVoiceOutputEnabled) "Voice reply enabled" else "Voice reply muted")
+                        },
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(
+                            if (vm.isVoiceOutputEnabled) Icons.Rounded.VolumeUp else Icons.Rounded.VolumeOff,
+                            contentDescription = "Toggle Voice Reply",
+                            tint = if (vm.isVoiceOutputEnabled) SecondaryTeal else TextMuted,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
+                    IconButton(
                         onClick = { vm.clearChat() },
                         modifier = Modifier.size(36.dp)
                     ) {
@@ -152,6 +168,51 @@ fun ChatScreen(vm: MiniOViewModel) {
                             tint = TextMuted,
                             modifier = Modifier.size(20.dp)
                         )
+                    }
+                }
+            }
+        }
+
+        // Live Voice Status Banners
+        if (vm.voiceState == VoiceState.LISTENING) {
+            Surface(
+                color = DangerRed.copy(alpha = 0.15f),
+                border = androidx.compose.foundation.BorderStroke(1.dp, DangerRed.copy(alpha = 0.4f)),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Icon(Icons.Rounded.Mic, contentDescription = null, tint = DangerRed, modifier = Modifier.size(18.dp))
+                        Text("Listening... Speak your prompt naturally", color = DangerRed, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                    TextButton(onClick = { vm.toggleVoice() }) {
+                        Text("Finish", color = DangerRed, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        } else if (vm.voiceState == VoiceState.SPEAKING) {
+            Surface(
+                color = SecondaryTeal.copy(alpha = 0.15f),
+                border = androidx.compose.foundation.BorderStroke(1.dp, SecondaryTeal.copy(alpha = 0.4f)),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Icon(Icons.Rounded.GraphicEq, contentDescription = null, tint = SecondaryTeal, modifier = Modifier.size(18.dp))
+                        Text("Mini-O is speaking...", color = SecondaryTeal, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                    TextButton(onClick = { vm.stopSpeaking() }) {
+                        Text("Stop Audio", color = SecondaryTeal, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }

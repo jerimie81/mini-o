@@ -6,6 +6,8 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.minio.mobile.data.*
+import com.minio.mobile.voice.VoiceAssistantManager
+import com.minio.mobile.voice.VoiceState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -19,6 +21,13 @@ class MiniOViewModel : ViewModel() {
 
     var currentTab by mutableStateOf(ScreenTab.CHAT)
     var notificationMessage by mutableStateOf<String?>(null); private set
+
+    // Voice State
+    var voiceState by mutableStateOf(VoiceState.IDLE)
+    var voiceRmsDb by mutableStateOf(0f)
+    var isVoiceOutputEnabled by mutableStateOf(true)
+    var wasLastInputVoice by mutableStateOf(false); private set
+    var voiceAssistantManager: VoiceAssistantManager? = null
 
     // Server Info
     var health by mutableStateOf<ServerHealth?>(null); private set
@@ -139,10 +148,13 @@ class MiniOViewModel : ViewModel() {
     }
 
     // Chat Operations
-    fun sendChatMessage(promptText: String = chatInput) {
+    fun sendChatMessage(promptText: String = chatInput, fromVoice: Boolean = false) {
         val prompt = promptText.trim()
         if (prompt.isEmpty() || isChatStreaming) return
         val client = apiClient ?: return
+
+        wasLastInputVoice = fromVoice
+        voiceAssistantManager?.stopSpeaking()
 
         val userMessage = ChatMessage(role = "user", content = prompt)
         val assistantMessageId = java.util.UUID.randomUUID().toString()
@@ -175,43 +187,76 @@ class MiniOViewModel : ViewModel() {
                         }
                     }
                 },
-                onToolCall = { name, args ->
+                onToolCall = { name, _ ->
                     viewModelScope.launch(Dispatchers.Main) {
                         activeToolNotification = "Running tool: $name"
                     }
                 },
-                onToolResult = { name, result ->
+                onToolResult = { name, _ ->
                     viewModelScope.launch(Dispatchers.Main) {
                         activeToolNotification = "Tool $name finished"
                     }
                 },
                 onDone = {
                     viewModelScope.launch(Dispatchers.Main) {
+                        var finalAssistantText = ""
                         chatMessages = chatMessages.map { msg ->
                             if (msg.id == assistantMessageId) {
+                                finalAssistantText = msg.content
                                 msg.copy(isStreaming = false)
                             } else msg
                         }
                         isChatStreaming = false
                         activeToolNotification = null
+
+                        // Auto speak response when prompt was triggered by voice
+                        if (wasLastInputVoice && isVoiceOutputEnabled && finalAssistantText.isNotBlank()) {
+                            voiceAssistantManager?.speak(finalAssistantText)
+                        }
                     }
                 },
                 onError = { err ->
                     viewModelScope.launch(Dispatchers.Main) {
+                        val errMsg = "⚠️ Error: $err"
                         chatMessages = chatMessages.map { msg ->
                             if (msg.id == assistantMessageId) {
                                 msg.copy(
-                                    content = if (msg.content.isEmpty()) "⚠️ Error: $err" else "${msg.content}\n\n⚠️ Stream interrupted: $err",
+                                    content = if (msg.content.isEmpty()) errMsg else "${msg.content}\n\n$errMsg",
                                     isStreaming = false
                                 )
                             } else msg
                         }
                         isChatStreaming = false
                         activeToolNotification = null
+
+                        if (wasLastInputVoice && isVoiceOutputEnabled) {
+                            voiceAssistantManager?.speak("Sorry, an error occurred while generating a response.")
+                        }
                     }
                 }
             )
         }
+    }
+
+    fun onVoiceInput(transcribedText: String) {
+        currentTab = ScreenTab.CHAT
+        sendChatMessage(promptText = transcribedText, fromVoice = true)
+    }
+
+    fun toggleVoice() {
+        when (voiceState) {
+            VoiceState.SPEAKING -> voiceAssistantManager?.stopSpeaking()
+            VoiceState.LISTENING -> voiceAssistantManager?.stopListening()
+            VoiceState.PROCESSING -> voiceAssistantManager?.cancelListening()
+            VoiceState.IDLE -> {
+                currentTab = ScreenTab.CHAT
+                voiceAssistantManager?.startListening()
+            }
+        }
+    }
+
+    fun stopSpeaking() {
+        voiceAssistantManager?.stopSpeaking()
     }
 
     fun stopChatGeneration() {
