@@ -19,19 +19,54 @@
       <button id="toggle-theme" class="icon-button" title="Toggle theme" aria-label="Toggle theme">🌓</button>
       <button id="open-about" class="icon-button" title="About Mini-O" aria-label="About Mini-O">?</button>
     </div>
-    <div class="model-picker">
-      <label for="model-select">Model</label>
-      <input id="model-search" class="model-search" placeholder="Filter models…" aria-label="Filter models" />
-      <select id="model-select" aria-describedby="model-help"></select>
-      <button id="favorite-model" class="secondary" type="button" title="Favorite model" aria-label="Favorite model">☆ Favorite</button>
-      <button id="refresh-models" class="icon-button" title="Refresh models" aria-label="Refresh models">↻</button><button id="model-details" class="icon-button" title="Model details" aria-label="Model details">ⓘ</button>
+    <div class="model-picker" id="model-picker-container">
+      <div class="model-picker-header">
+        <label for="model-select" class="model-picker-label">Active Model</label>
+        <button id="open-model-hub-btn" class="model-hub-trigger-btn" type="button" title="Open Model Hub (Ctrl+M)" aria-label="Open Model Hub">
+          <span class="hub-icon">✨</span>
+          <span>Model Hub</span>
+        </button>
+      </div>
+
+      <!-- Active Model Hero Card -->
+      <div class="active-model-card" id="active-model-card" title="Click to browse all models (Ctrl+M)">
+        <div class="active-model-top">
+          <span class="model-provider-badge" id="active-model-provider-badge">MiniMax</span>
+          <span class="model-type-pill" id="active-model-type-pill">Cloud</span>
+        </div>
+        <div class="active-model-name-row">
+          <strong class="active-model-title" id="active-model-title">MiniMax M3</strong>
+          <span class="active-model-id" id="active-model-id">minimax-m3:cloud</span>
+        </div>
+        <div class="active-model-meta-row" id="active-model-meta-row">
+          <span class="model-chip" id="active-model-ctx">1M ctx</span>
+          <span class="model-chip" id="active-model-cap">Tools · Polyglot</span>
+        </div>
+      </div>
+
+      <div class="model-search-wrap">
+        <input id="model-search" class="model-search" placeholder="Filter models by name, tag, provider…" aria-label="Filter models" />
+        <button id="model-search-clear" class="model-search-clear hidden" type="button" title="Clear filter">×</button>
+      </div>
+
+      <div class="model-select-row">
+        <select id="model-select" aria-describedby="model-help" aria-label="Select AI Model"></select>
+      </div>
+
+      <div class="model-picker-actions">
+        <button id="favorite-model" class="secondary icon-btn-text" type="button" title="Favorite model" aria-label="Favorite model">☆ Fav</button>
+        <button id="model-details" class="secondary icon-btn-text" type="button" title="Technical Specs & Info" aria-label="Model specifications">ⓘ Specs</button>
+        <button id="refresh-models" class="icon-button" type="button" title="Refresh local & cloud models" aria-label="Refresh models">↻</button>
+      </div>
     </div>
-    <p id="model-help" class="field-help">Choose the model used for new messages.</p>
+    <p id="model-help" class="field-help">Switch instant cloud frontier or local open-weights.</p>
     <h2 class="sr-only">Saved conversations</h2>
     <div class="conversation-tools"><input id="conversation-search" placeholder="Search chats…" aria-label="Search conversations" /><button id="conversation-sort" class="icon-button" title="Toggle archived chats" aria-label="Toggle archived chats">☷</button></div>
     <ul id="conversation-list" class="conversation-list"></ul>
     <div class="sidebar-footer">
-      <button id="pull-model" class="secondary">＋ Pull model</button><button id="open-files" class="secondary">📁 Workspace</button>
+      <button id="pull-model" class="secondary">＋ Pull model</button>
+      <button id="browse-model-hub" class="secondary">✨ Model Hub</button>
+      <button id="open-files" class="secondary">📁 Workspace</button>
     </div>
   </aside>
 
@@ -39,7 +74,7 @@
     <header class="main-header">
       <button id="toggle-sidebar" class="icon-button mobile-only" title="Open conversations" aria-label="Open conversations">☰</button>
       <div class="header-info">
-        <span id="current-model" class="badge">No model</span>
+        <button id="current-model" class="badge badge-model-interactive" type="button" title="Click to browse & switch model (Ctrl+M)" aria-label="Current AI Model">No model</button>
         <span id="status" class="status-dot" role="status" aria-label="Checking connection"></span>
         <span id="status-text" class="status-text">Checking connection…</span>
       </div>
@@ -80,6 +115,7 @@
     <div class="panel-heading"><h2>Workspace</h2><button id="close-right-panel" class="icon-button" title="Close workspace" aria-label="Close workspace">×</button></div>
     <div class="tabs" role="tablist" aria-label="Workspace panels">
       <button data-tab="files" class="tab active" role="tab" aria-selected="true" aria-controls="tab-files">Files</button>
+      <button data-tab="models" class="tab" role="tab" aria-selected="false" aria-controls="tab-models">Models</button>
       <button data-tab="tools" class="tab" role="tab" aria-selected="false" aria-controls="tab-tools">Tools</button>
       <button data-tab="configure" class="tab" role="tab" aria-selected="false" aria-controls="tab-configure">Configure</button>
       <button data-tab="integrations" class="tab" role="tab" aria-selected="false" aria-controls="tab-integrations">Integrations</button>
@@ -106,6 +142,25 @@
           <div class="editor-options"><label><input id="editor-readonly" type="checkbox" /> Read-only</label><span id="editor-language">text</span><span id="editor-encoding"></span></div>
           <textarea id="editor-text" spellcheck="false"></textarea>
         </div>
+      </div>
+      <div id="tab-models" class="tab-panel" role="tabpanel" aria-label="Models">
+        <div class="models-tab-toolbar">
+          <div class="models-tab-search-wrap">
+            <input id="tab-model-search" placeholder="Search models by name, tag, provider…" aria-label="Search models" />
+            <button id="tab-refresh-models" class="icon-button" title="Refresh models" aria-label="Refresh models">↻</button>
+          </div>
+          <div class="models-tab-filter-pills" id="tab-model-filters">
+            <button class="filter-pill active" data-cat="all">All</button>
+            <button class="filter-pill" data-cat="favorites">★ Favorites</button>
+            <button class="filter-pill" data-cat="best_fit">⚡ Best Machine Fit</button>
+            <button class="filter-pill" data-cat="cloud">☁️ Cloud (0 RAM)</button>
+            <button class="filter-pill" data-cat="installed">💻 Installed</button>
+            <button class="filter-pill" data-cat="reasoning">🧠 Reasoning</button>
+            <button class="filter-pill" data-cat="coding">💻 Coding</button>
+            <button class="filter-pill" data-cat="vision">👁️ Vision</button>
+          </div>
+        </div>
+        <div id="tab-models-list" class="models-card-list"></div>
       </div>
       <div id="tab-tools" class="tab-panel" role="tabpanel" aria-label="Tools">
         <ul id="tool-list" class="tool-list"></ul>

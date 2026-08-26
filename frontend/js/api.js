@@ -95,7 +95,21 @@ const invalidate = prefix => {
 
 export const api = {
   health: () => getJson("/api/health", 1),
-  models: (q = "", signal) => cachedJson(`/api/models?q=${encodeURIComponent(q)}`, 4000, signal),
+  models: (queryOrParams = "", signal) => {
+    let url = "/api/models";
+    if (typeof queryOrParams === "string") {
+      if (queryOrParams) url += `?q=${encodeURIComponent(queryOrParams)}`;
+    } else if (queryOrParams && typeof queryOrParams === "object") {
+      const params = new URLSearchParams();
+      if (queryOrParams.q) params.set("q", queryOrParams.q);
+      if (queryOrParams.category) params.set("category", queryOrParams.category);
+      if (queryOrParams.provider) params.set("provider", queryOrParams.provider);
+      if (queryOrParams.installed) params.set("installed", "true");
+      const qs = params.toString();
+      if (qs) url += `?${qs}`;
+    }
+    return cachedJson(url, 2000, signal);
+  },
   model: (name, signal) => getJson(`/api/models/${encodeURIComponent(name)}`, 3, signal),
   pullModel: (name, signal) => fetch(`/api/models/${encodeURIComponent(name)}/pull`, { method: "POST", signal }),
   deleteModel: (name) => fetch(`/api/models/${encodeURIComponent(name)}`, { method: "DELETE" }).then(json),
@@ -120,6 +134,7 @@ export const api = {
     body: JSON.stringify({ path, title, notes }),
   }).then(json),
   diagnostics: () => getJson("/api/diagnostics"),
+  hardware: (signal) => cachedJson("/api/system/hardware", 10000, signal),
   serverErrors: () => getJson("/api/diagnostics/errors"),
   clearServerErrors: () => fetch("/api/diagnostics/errors/clear", { method: "POST" }).then(json),
   exportDiagnostics: () => fetch("/api/diagnostics/export").then(json),

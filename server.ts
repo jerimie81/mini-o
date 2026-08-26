@@ -2,9 +2,14 @@ import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
+import { fileURLToPath } from 'url';
 import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
 import { GoogleGenAI, Type, Modality, FunctionDeclaration } from '@google/genai';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const execAsync = promisify(exec);
 
@@ -365,20 +370,588 @@ const toolActivity: Array<{
   error?: string;
 }> = [];
 
-// Available models catalog - MiniMax M3 (Cloud / Ollama) is the dedicated default model
+// Available models catalog - Comprehensive Cloud Frontier & Curated Local Open-Weights
 const modelCatalog = [
+  // Cloud Frontier Models
   {
     name: 'minimax-m3:cloud',
     display_name: 'MiniMax M3 (Cloud / Ollama)',
+    provider: 'minimax',
+    provider_display: 'MiniMax AI',
+    category: 'cloud',
+    tags: ['default', 'polyglot', 'android-re', 'tools', 'fast'],
     size: 0,
-    family: 'cloud',
-    families: ['cloud', 'ollama', 'minimax'],
-    parameter_size: 'Cloud',
-    quantization_level: '',
+    parameter_size: 'Cloud (MoE)',
+    quantization_level: 'Cloud API (FP8/FP16 Cluster)',
+    context_window: '1,000,000 tokens',
+    context_tokens: 1000000,
+    installed: true,
     modified_at: new Date().toISOString(),
-    capabilities: ['chat', 'streaming', 'tools', 'thinking', 'vision'],
-    use_cases: ['general reasoning', 'cloud inference', 'fast coding', 'workspace assistant'],
+    capabilities: ['chat', 'streaming', 'tools', 'thinking', 'vision', 'code'],
+    description: 'High-speed polyglot engineering specialist with workspace tool integration, Android reverse engineering, and multi-language synthesis.',
+    use_cases: ['System automation', 'Android RE & analysis', 'Full-stack development', 'Polyglot workflows'],
     supports_options: ['temperature', 'top_p', 'top_k', 'seed', 'num_ctx', 'num_predict'],
+    download_size_est: 'Cloud (0 GB)',
+    hardware_profile: {
+      execution_type: 'cloud',
+      min_ram_gb: 0,
+      recommended_ram_gb: 0,
+      recommended_vram_gb: 0,
+      storage_required_gb: 0,
+      quantization_detail: 'Cloud Hosted Mixture-of-Experts (Zero host VRAM/RAM required)',
+      speed_tier: 'Instant Cloud',
+      est_tok_per_sec: { cloud: '90 - 130 tok/s', gpu: 'N/A (Cloud)', cpu: 'N/A (Cloud)' },
+      resource_impact: 'Zero',
+      offload_advice: 'Zero local memory or GPU consumption. Handled via high-throughput cloud cluster with native workspace tools.',
+      how_it_runs: 'Requests are securely dispatched to the MiniMax cloud gateway over HTTP/2 streaming. Workspace tool calls execute locally in sandbox while token generation occurs in cloud.',
+      benchmarks: { coding: 93, reasoning: 92, speed: 96, tool_calling: 95, context: 98 },
+    },
+  },
+  {
+    name: 'gemini-3.7-flash',
+    display_name: 'Gemini 3.7 Flash',
+    provider: 'google',
+    provider_display: 'Google DeepMind',
+    category: 'reasoning',
+    tags: ['hybrid-reasoning', 'vision', 'tools', 'search-grounding', 'multimodal'],
+    size: 0,
+    parameter_size: 'Frontier Cloud',
+    quantization_level: 'Cloud API (Google TPU v5e/v5p)',
+    context_window: '1,000,000 tokens',
+    context_tokens: 1000000,
+    installed: true,
+    modified_at: new Date().toISOString(),
+    capabilities: ['chat', 'streaming', 'tools', 'thinking', 'vision', 'search_grounding', 'audio_tts'],
+    description: 'Next-generation multimodal model with dynamic hybrid reasoning, search grounding, thinking token budget controls, and ultra-low latency.',
+    use_cases: ['Advanced reasoning & math', 'Deep code generation', 'Multimodal & vision analysis', 'Real-time tool execution'],
+    supports_options: ['temperature', 'top_p', 'top_k', 'seed', 'num_ctx', 'thinking_budget', 'search_grounding'],
+    download_size_est: 'Cloud (0 GB)',
+    hardware_profile: {
+      execution_type: 'cloud',
+      min_ram_gb: 0,
+      recommended_ram_gb: 0,
+      recommended_vram_gb: 0,
+      storage_required_gb: 0,
+      quantization_detail: 'Google DeepMind Cloud TPU Matrix (Zero local hardware footprint)',
+      speed_tier: 'Ultra Fast',
+      est_tok_per_sec: { cloud: '100 - 140 tok/s', gpu: 'N/A (Cloud)', cpu: 'N/A (Cloud)' },
+      resource_impact: 'Zero',
+      offload_advice: 'Operates via Google DeepMind Cloud TPU infrastructure with dynamic CoT thinking token budgeting.',
+      how_it_runs: 'Queries execute on Google Cloud TPUs with streaming response chunks. Includes live Google Search grounding and multimodal vision tensor processing.',
+      benchmarks: { coding: 96, reasoning: 97, speed: 98, tool_calling: 97, context: 99 },
+    },
+  },
+  {
+    name: 'gemini-2.5-pro',
+    display_name: 'Gemini 2.5 Pro',
+    provider: 'google',
+    provider_display: 'Google DeepMind',
+    category: 'reasoning',
+    tags: ['deep-reasoning', 'code', 'large-context', 'tools'],
+    size: 0,
+    parameter_size: 'Frontier Pro',
+    quantization_level: 'Cloud API (TPU Cluster)',
+    context_window: '2,000,000 tokens',
+    context_tokens: 2000000,
+    installed: true,
+    modified_at: new Date().toISOString(),
+    capabilities: ['chat', 'streaming', 'tools', 'thinking', 'vision', 'search_grounding'],
+    description: 'Google’s state-of-the-art model for complex multi-step reasoning, architecture design, repository-wide coding, and math.',
+    use_cases: ['Complex software architecture', 'Extensive document analysis', 'Multi-step logic proofs', 'Refactoring'],
+    supports_options: ['temperature', 'top_p', 'top_k', 'seed', 'num_ctx'],
+    download_size_est: 'Cloud (0 GB)',
+    hardware_profile: {
+      execution_type: 'cloud',
+      min_ram_gb: 0,
+      recommended_ram_gb: 0,
+      recommended_vram_gb: 0,
+      storage_required_gb: 0,
+      quantization_detail: 'Google Enterprise TPU v5p Cluster with 2M token context engine',
+      speed_tier: 'Fast',
+      est_tok_per_sec: { cloud: '65 - 90 tok/s', gpu: 'N/A (Cloud)', cpu: 'N/A (Cloud)' },
+      resource_impact: 'Zero',
+      offload_advice: 'Zero local overhead. Built for repository-scale context ingestion without taxing host RAM.',
+      how_it_runs: 'Dispatched to Google Gemini Pro infrastructure with support for 2-million-token multi-file context windows.',
+      benchmarks: { coding: 98, reasoning: 99, speed: 88, tool_calling: 98, context: 100 },
+    },
+  },
+  {
+    name: 'gemini-2.5-flash',
+    display_name: 'Gemini 2.5 Flash',
+    provider: 'google',
+    provider_display: 'Google DeepMind',
+    category: 'cloud',
+    tags: ['fast', 'multimodal', 'tools', 'efficient'],
+    size: 0,
+    parameter_size: 'Frontier Flash',
+    quantization_level: 'Cloud API',
+    context_window: '1,000,000 tokens',
+    context_tokens: 1000000,
+    installed: true,
+    modified_at: new Date().toISOString(),
+    capabilities: ['chat', 'streaming', 'tools', 'vision', 'search_grounding'],
+    description: 'Ultra-fast, cost-effective multimodal workhorse for responsive conversation and everyday workspace tasks.',
+    use_cases: ['Instant chat responses', 'Quick edits', 'Visual queries', 'General assistance'],
+    supports_options: ['temperature', 'top_p', 'top_k', 'seed', 'num_ctx'],
+    download_size_est: 'Cloud (0 GB)',
+    hardware_profile: {
+      execution_type: 'cloud',
+      min_ram_gb: 0,
+      recommended_ram_gb: 0,
+      recommended_vram_gb: 0,
+      storage_required_gb: 0,
+      quantization_detail: 'Cloud TPU Flash Architecture (Lowest Latency)',
+      speed_tier: 'Instant Cloud',
+      est_tok_per_sec: { cloud: '110 - 150 tok/s', gpu: 'N/A (Cloud)', cpu: 'N/A (Cloud)' },
+      resource_impact: 'Zero',
+      offload_advice: 'Instant streaming with sub-200ms time-to-first-token. Zero host resource usage.',
+      how_it_runs: 'Direct streaming API connection to Google Cloud edge accelerators.',
+      benchmarks: { coding: 91, reasoning: 91, speed: 99, tool_calling: 94, context: 97 },
+    },
+  },
+  {
+    name: 'deepseek-chat:cloud',
+    display_name: 'DeepSeek V3 (Cloud)',
+    provider: 'deepseek',
+    provider_display: 'DeepSeek AI',
+    category: 'coding',
+    tags: ['moe', 'coding', 'polyglot', 'fast'],
+    size: 0,
+    parameter_size: '671B (37B active)',
+    quantization_level: 'Cloud API (FP8 Multi-Node)',
+    context_window: '128,000 tokens',
+    context_tokens: 128000,
+    installed: true,
+    modified_at: new Date().toISOString(),
+    capabilities: ['chat', 'streaming', 'tools', 'code'],
+    description: '671B parameter Mixture-of-Experts model excelling at multi-language programming, math, and natural language understanding.',
+    use_cases: ['Polyglot software engineering', 'Algorithm design', 'Data pipelines', 'Technical documentation'],
+    supports_options: ['temperature', 'top_p', 'top_k', 'seed', 'num_ctx'],
+    download_size_est: 'Cloud (0 GB)',
+    hardware_profile: {
+      execution_type: 'cloud',
+      min_ram_gb: 0,
+      recommended_ram_gb: 0,
+      recommended_vram_gb: 0,
+      storage_required_gb: 0,
+      quantization_detail: 'Multi-GPU Cloud Cluster with 671B total / 37B active MoE routing',
+      speed_tier: 'Fast',
+      est_tok_per_sec: { cloud: '70 - 100 tok/s', gpu: 'N/A (Cloud)', cpu: 'N/A (Cloud)' },
+      resource_impact: 'Zero',
+      offload_advice: 'Running 671B locally would require ~350GB VRAM; cloud API delivers full power with zero local RAM load.',
+      how_it_runs: 'DeepSeek MoE cluster activates 37B parameters per token for polyglot code generation.',
+      benchmarks: { coding: 96, reasoning: 95, speed: 92, tool_calling: 93, context: 94 },
+    },
+  },
+  {
+    name: 'deepseek-reasoner:cloud',
+    display_name: 'DeepSeek R1 (Cloud)',
+    provider: 'deepseek',
+    provider_display: 'DeepSeek AI',
+    category: 'reasoning',
+    tags: ['reasoning', 'chain-of-thought', 'math', 'logic'],
+    size: 0,
+    parameter_size: '671B CoT',
+    quantization_level: 'Cloud API (FP8 CoT)',
+    context_window: '128,000 tokens',
+    context_tokens: 128000,
+    installed: true,
+    modified_at: new Date().toISOString(),
+    capabilities: ['chat', 'streaming', 'thinking', 'code'],
+    description: 'Open-weight reasoning architecture using reinforcement learning with full chain-of-thought problem breakdown before answering.',
+    use_cases: ['Hard algorithmic problems', 'Mathematical theorems', 'Reverse engineering logic', 'Root cause debugging'],
+    supports_options: ['temperature', 'top_p', 'top_k', 'seed', 'num_ctx'],
+    download_size_est: 'Cloud (0 GB)',
+    hardware_profile: {
+      execution_type: 'cloud',
+      min_ram_gb: 0,
+      recommended_ram_gb: 0,
+      recommended_vram_gb: 0,
+      storage_required_gb: 0,
+      quantization_detail: 'Full 671B Parameter DeepSeek RL Reinforcement Reasoning Cluster',
+      speed_tier: 'Moderate',
+      est_tok_per_sec: { cloud: '45 - 75 tok/s', gpu: 'N/A (Cloud)', cpu: 'N/A (Cloud)' },
+      resource_impact: 'Zero',
+      offload_advice: 'Emits complete inner thinking reasoning trace prior to output. Zero host hardware load.',
+      how_it_runs: 'Streams chain-of-thought reasoning tokens followed by structured answer.',
+      benchmarks: { coding: 97, reasoning: 99, speed: 82, tool_calling: 90, context: 93 },
+    },
+  },
+
+  // Local Open-Weights & Ollama Models Catalog
+  {
+    name: 'llama3.3:70b',
+    display_name: 'Meta Llama 3.3 (70B)',
+    provider: 'meta',
+    provider_display: 'Meta AI',
+    category: 'reasoning',
+    tags: ['flagship', 'local', 'large-weights', 'tools'],
+    size: 42949672960,
+    parameter_size: '70B',
+    quantization_level: 'Q4_K_M',
+    context_window: '128,000 tokens',
+    context_tokens: 128000,
+    installed: false,
+    modified_at: new Date().toISOString(),
+    capabilities: ['chat', 'streaming', 'tools', 'code'],
+    description: 'Meta’s most capable 70B open weights model, matching previous-generation frontier models in reasoning and general knowledge.',
+    use_cases: ['On-premise enterprise reasoning', 'Complex coding', 'Offline analytical synthesis'],
+    supports_options: ['temperature', 'top_p', 'top_k', 'seed', 'num_ctx', 'num_predict'],
+    download_size_est: '42.0 GB',
+    hardware_profile: {
+      execution_type: 'local_gpu',
+      min_ram_gb: 48,
+      recommended_ram_gb: 64,
+      recommended_vram_gb: 44,
+      storage_required_gb: 42.0,
+      quantization_detail: 'GGUF Q4_K_M (4.5 bits/weight, near-lossless 70B compression)',
+      speed_tier: 'Heavy Compute',
+      est_tok_per_sec: { cloud: 'N/A', gpu: '25 - 40 tok/s (RTX 4090/A6000/M3 Max)', cpu: '3 - 6 tok/s (16-core CPU)' },
+      resource_impact: 'Heavy',
+      offload_advice: 'Requires Mac Studio (64GB+ unified memory) or dual 24GB GPUs (e.g. 2x RTX 3090/4090) for full GPU offload.',
+      how_it_runs: 'Runs locally via Ollama with llama.cpp. Offloads ~80 layers to GPU VRAM and remainder to system unified memory.',
+      benchmarks: { coding: 95, reasoning: 95, speed: 65, tool_calling: 94, context: 95 },
+    },
+  },
+  {
+    name: 'llama3.1:8b',
+    display_name: 'Meta Llama 3.1 (8B)',
+    provider: 'meta',
+    provider_display: 'Meta AI',
+    category: 'lightweight',
+    tags: ['fast', 'local', 'daily-driver', 'tools'],
+    size: 4940000000,
+    parameter_size: '8B',
+    quantization_level: 'Q4_K_M',
+    context_window: '128,000 tokens',
+    context_tokens: 128000,
+    installed: false,
+    modified_at: new Date().toISOString(),
+    capabilities: ['chat', 'streaming', 'tools', 'code'],
+    description: 'The golden standard 8B local model with 128k context window, excellent speed-to-accuracy ratio, and native tool-calling support.',
+    use_cases: ['Fast local chats', 'Command-line assistants', 'Laptop and desktop inference'],
+    supports_options: ['temperature', 'top_p', 'top_k', 'seed', 'num_ctx', 'num_predict'],
+    download_size_est: '4.7 GB',
+    hardware_profile: {
+      execution_type: 'local_gpu',
+      min_ram_gb: 8,
+      recommended_ram_gb: 16,
+      recommended_vram_gb: 6,
+      storage_required_gb: 4.7,
+      quantization_detail: 'GGUF Q4_K_M (33 layers, 4.7 GB memory resident)',
+      speed_tier: 'Ultra Fast',
+      est_tok_per_sec: { cloud: 'N/A', gpu: '55 - 90 tok/s (RTX 3060/4060/M1/M2)', cpu: '12 - 22 tok/s (8-core CPU)' },
+      resource_impact: 'Low',
+      offload_advice: 'Fits fully in any 6GB+ VRAM GPU or any modern 8GB+ laptop CPU with AVX2.',
+      how_it_runs: 'Entire 8B network loaded into GPU VRAM (33/33 layers offloaded). Instantaneous token generation with low thermal footprint.',
+      benchmarks: { coding: 86, reasoning: 87, speed: 94, tool_calling: 89, context: 92 },
+    },
+  },
+  {
+    name: 'deepseek-r1:14b',
+    display_name: 'DeepSeek R1 (14B)',
+    provider: 'deepseek',
+    provider_display: 'DeepSeek AI',
+    category: 'reasoning',
+    tags: ['reasoning', 'local', 'chain-of-thought', 'math'],
+    size: 9000000000,
+    parameter_size: '14B',
+    quantization_level: 'Q4_K_M',
+    context_window: '64,000 tokens',
+    context_tokens: 64000,
+    installed: false,
+    modified_at: new Date().toISOString(),
+    capabilities: ['chat', 'streaming', 'thinking', 'code'],
+    description: 'Distilled Qwen-based R1 reasoning model. Produces detailed chain-of-thought verification for code, logic, and math on local hardware.',
+    use_cases: ['Local reasoning & debugging', 'Algorithm verification', 'Offline problem solving'],
+    supports_options: ['temperature', 'top_p', 'top_k', 'seed', 'num_ctx', 'num_predict'],
+    download_size_est: '9.0 GB',
+    hardware_profile: {
+      execution_type: 'local_gpu',
+      min_ram_gb: 12,
+      recommended_ram_gb: 16,
+      recommended_vram_gb: 10,
+      storage_required_gb: 9.0,
+      quantization_detail: 'GGUF Q4_K_M (48 layers, 9.0 GB resident memory)',
+      speed_tier: 'Fast',
+      est_tok_per_sec: { cloud: 'N/A', gpu: '35 - 55 tok/s (RTX 3080/4070/M2 Pro)', cpu: '8 - 14 tok/s (8-core CPU)' },
+      resource_impact: 'Moderate',
+      offload_advice: 'Ideal for 12GB/16GB GPUs or 16GB+ Apple Silicon MacBooks. Generates full step-by-step thinking traces locally.',
+      how_it_runs: 'Executes distilled R1 reasoning weights with dynamic thinking phase before output synthesis.',
+      benchmarks: { coding: 92, reasoning: 94, speed: 84, tool_calling: 85, context: 88 },
+    },
+  },
+  {
+    name: 'deepseek-r1:8b',
+    display_name: 'DeepSeek R1 (8B)',
+    provider: 'deepseek',
+    provider_display: 'DeepSeek AI',
+    category: 'reasoning',
+    tags: ['reasoning', 'local', 'lightweight-cot'],
+    size: 4900000000,
+    parameter_size: '8B',
+    quantization_level: 'Q4_K_M',
+    context_window: '64,000 tokens',
+    context_tokens: 64000,
+    installed: false,
+    modified_at: new Date().toISOString(),
+    capabilities: ['chat', 'streaming', 'thinking', 'code'],
+    description: 'Distilled Llama-based R1 model for fast step-by-step reasoning on modest consumer GPUs or Apple Silicon.',
+    use_cases: ['Step-by-step logic', 'Quick verification', 'Lightweight reasoning'],
+    supports_options: ['temperature', 'top_p', 'top_k', 'seed', 'num_ctx', 'num_predict'],
+    download_size_est: '4.9 GB',
+    hardware_profile: {
+      execution_type: 'local_gpu',
+      min_ram_gb: 8,
+      recommended_ram_gb: 16,
+      recommended_vram_gb: 6,
+      storage_required_gb: 4.9,
+      quantization_detail: 'GGUF Q4_K_M (32 layers, 4.9 GB)',
+      speed_tier: 'Ultra Fast',
+      est_tok_per_sec: { cloud: 'N/A', gpu: '50 - 80 tok/s', cpu: '11 - 19 tok/s' },
+      resource_impact: 'Low',
+      offload_advice: 'Runs smoothly on any 8GB+ RAM machine or 6GB GPU with minimal battery draw.',
+      how_it_runs: 'High-speed local chain-of-thought execution with minimal VRAM overhead.',
+      benchmarks: { coding: 88, reasoning: 90, speed: 92, tool_calling: 86, context: 88 },
+    },
+  },
+  {
+    name: 'qwen2.5-coder:32b',
+    display_name: 'Qwen 2.5 Coder (32B)',
+    provider: 'qwen',
+    provider_display: 'Alibaba Cloud / Qwen',
+    category: 'coding',
+    tags: ['coding-premier', 'local', 'repo-analysis', 'tools'],
+    size: 19500000000,
+    parameter_size: '32B',
+    quantization_level: 'Q4_K_M',
+    context_window: '128,000 tokens',
+    context_tokens: 128000,
+    installed: false,
+    modified_at: new Date().toISOString(),
+    capabilities: ['chat', 'streaming', 'tools', 'code'],
+    description: 'World-class open-source coding engine rivaling GPT-4o in code generation, bug fixing, repo navigation, and refactoring.',
+    use_cases: ['Repository-scale refactoring', 'Complex feature implementation', 'Multi-file code synthesis'],
+    supports_options: ['temperature', 'top_p', 'top_k', 'seed', 'num_ctx', 'num_predict'],
+    download_size_est: '19.5 GB',
+    hardware_profile: {
+      execution_type: 'local_gpu',
+      min_ram_gb: 24,
+      recommended_ram_gb: 32,
+      recommended_vram_gb: 20,
+      storage_required_gb: 19.5,
+      quantization_detail: 'GGUF Q4_K_M (64 layers, 19.5 GB memory resident)',
+      speed_tier: 'Moderate',
+      est_tok_per_sec: { cloud: 'N/A', gpu: '28 - 45 tok/s (RTX 3090/4090/M2 Max)', cpu: '5 - 9 tok/s (12-core CPU)' },
+      resource_impact: 'High',
+      offload_advice: 'Requires 24GB VRAM GPU (RTX 3090/4090) or 32GB+ Unified Memory Mac for 100% GPU offload.',
+      how_it_runs: 'Full local code intelligence model with 128k attention span. Can partial-offload 40/64 layers on 16GB GPUs.',
+      benchmarks: { coding: 97, reasoning: 93, speed: 76, tool_calling: 94, context: 95 },
+    },
+  },
+  {
+    name: 'qwen2.5-coder:7b',
+    display_name: 'Qwen 2.5 Coder (7B)',
+    provider: 'qwen',
+    provider_display: 'Alibaba Cloud / Qwen',
+    category: 'coding',
+    tags: ['coding', 'fast', 'local', 'tools'],
+    size: 4700000000,
+    parameter_size: '7B',
+    quantization_level: 'Q4_K_M',
+    context_window: '128,000 tokens',
+    context_tokens: 128000,
+    installed: false,
+    modified_at: new Date().toISOString(),
+    capabilities: ['chat', 'streaming', 'tools', 'code'],
+    description: 'Fast and responsive 7B coding model optimized for code generation, syntax fixing, script generation, and terminal tool execution.',
+    use_cases: ['Fast code completion', 'Single-file scripting', 'Quick debugging'],
+    supports_options: ['temperature', 'top_p', 'top_k', 'seed', 'num_ctx', 'num_predict'],
+    download_size_est: '4.7 GB',
+    hardware_profile: {
+      execution_type: 'local_gpu',
+      min_ram_gb: 8,
+      recommended_ram_gb: 16,
+      recommended_vram_gb: 6,
+      storage_required_gb: 4.7,
+      quantization_detail: 'GGUF Q4_K_M (28 layers, 4.7 GB)',
+      speed_tier: 'Ultra Fast',
+      est_tok_per_sec: { cloud: 'N/A', gpu: '60 - 95 tok/s', cpu: '14 - 24 tok/s' },
+      resource_impact: 'Low',
+      offload_advice: 'Extremely lightweight. Flawless execution on consumer laptops and entry GPUs.',
+      how_it_runs: '100% GPU offload on standard 6GB+ graphics cards with rapid AST code parsing.',
+      benchmarks: { coding: 91, reasoning: 88, speed: 96, tool_calling: 91, context: 92 },
+    },
+  },
+  {
+    name: 'phi4:14b',
+    display_name: 'Microsoft Phi-4 (14B)',
+    provider: 'microsoft',
+    provider_display: 'Microsoft Research',
+    category: 'reasoning',
+    tags: ['synthetic-data', 'math', 'local', 'precise'],
+    size: 9100000000,
+    parameter_size: '14B',
+    quantization_level: 'Q4_K_M',
+    context_window: '16,000 tokens',
+    context_tokens: 16000,
+    installed: false,
+    modified_at: new Date().toISOString(),
+    capabilities: ['chat', 'streaming', 'code'],
+    description: 'Microsoft’s flagship synthetic-data trained 14B model with exceptional density in mathematics, logic puzzles, and science.',
+    use_cases: ['Mathematical modeling', 'Logical deductions', 'Concise code analysis'],
+    supports_options: ['temperature', 'top_p', 'top_k', 'seed', 'num_ctx', 'num_predict'],
+    download_size_est: '9.1 GB',
+    hardware_profile: {
+      execution_type: 'local_gpu',
+      min_ram_gb: 12,
+      recommended_ram_gb: 16,
+      recommended_vram_gb: 10,
+      storage_required_gb: 9.1,
+      quantization_detail: 'GGUF Q4_K_M (40 layers, 9.1 GB)',
+      speed_tier: 'Fast',
+      est_tok_per_sec: { cloud: 'N/A', gpu: '35 - 55 tok/s', cpu: '9 - 15 tok/s' },
+      resource_impact: 'Moderate',
+      offload_advice: 'Comfortably fits in 10GB+ VRAM or 16GB System RAM.',
+      how_it_runs: 'Dense high-precision synthetic weights processed in local llama.cpp backend.',
+      benchmarks: { coding: 92, reasoning: 95, speed: 85, tool_calling: 87, context: 82 },
+    },
+  },
+  {
+    name: 'gemma2:27b',
+    display_name: 'Google Gemma 2 (27B)',
+    provider: 'google',
+    provider_display: 'Google',
+    category: 'general',
+    tags: ['open-weights', 'high-throughput', 'local'],
+    size: 16000000000,
+    parameter_size: '27B',
+    quantization_level: 'Q4_K_M',
+    context_window: '8,192 tokens',
+    context_tokens: 8192,
+    installed: false,
+    modified_at: new Date().toISOString(),
+    capabilities: ['chat', 'streaming', 'code'],
+    description: 'Google’s open model with sliding window attention and soft-capping architecture, delivering high throughput and nuanced responses.',
+    use_cases: ['General knowledge', 'Text analysis', 'Instruction following'],
+    supports_options: ['temperature', 'top_p', 'top_k', 'seed', 'num_ctx', 'num_predict'],
+    download_size_est: '16.0 GB',
+    hardware_profile: {
+      execution_type: 'local_gpu',
+      min_ram_gb: 20,
+      recommended_ram_gb: 32,
+      recommended_vram_gb: 18,
+      storage_required_gb: 16.0,
+      quantization_detail: 'GGUF Q4_K_M (46 layers, sliding window attention)',
+      speed_tier: 'Moderate',
+      est_tok_per_sec: { cloud: 'N/A', gpu: '30 - 48 tok/s (16GB+ GPU)', cpu: '6 - 10 tok/s' },
+      resource_impact: 'High',
+      offload_advice: 'Requires 16GB-24GB VRAM or 32GB system RAM for smooth local execution.',
+      how_it_runs: 'Sliding window attention interleaves local and global layers to reduce KV cache VRAM footprint.',
+      benchmarks: { coding: 90, reasoning: 92, speed: 78, tool_calling: 88, context: 85 },
+    },
+  },
+  {
+    name: 'gemma2:9b',
+    display_name: 'Google Gemma 2 (9B)',
+    provider: 'google',
+    provider_display: 'Google',
+    category: 'lightweight',
+    tags: ['open-weights', 'efficient', 'local'],
+    size: 5400000000,
+    parameter_size: '9B',
+    quantization_level: 'Q4_K_M',
+    context_window: '8,192 tokens',
+    context_tokens: 8192,
+    installed: false,
+    modified_at: new Date().toISOString(),
+    capabilities: ['chat', 'streaming', 'code'],
+    description: 'Efficient on-device model from Google outperforming many larger models in standard benchmarks.',
+    use_cases: ['Local summaries', 'Lightweight reasoning', 'Instruction following'],
+    supports_options: ['temperature', 'top_p', 'top_k', 'seed', 'num_ctx', 'num_predict'],
+    download_size_est: '5.4 GB',
+    hardware_profile: {
+      execution_type: 'local_gpu',
+      min_ram_gb: 8,
+      recommended_ram_gb: 16,
+      recommended_vram_gb: 6,
+      storage_required_gb: 5.4,
+      quantization_detail: 'GGUF Q4_K_M (42 layers, 5.4 GB)',
+      speed_tier: 'Ultra Fast',
+      est_tok_per_sec: { cloud: 'N/A', gpu: '55 - 85 tok/s', cpu: '12 - 20 tok/s' },
+      resource_impact: 'Low',
+      offload_advice: 'Great daily-driver for 8GB RAM laptops and entry graphics cards.',
+      how_it_runs: 'Full GPU offload on 6GB+ cards with soft-capped logit stability.',
+      benchmarks: { coding: 87, reasoning: 89, speed: 93, tool_calling: 86, context: 86 },
+    },
+  },
+  {
+    name: 'mistral-nemo:12b',
+    display_name: 'Mistral NeMo (12B)',
+    provider: 'mistral',
+    provider_display: 'Mistral AI & NVIDIA',
+    category: 'general',
+    tags: ['128k-context', 'multilingual', 'local'],
+    size: 7100000000,
+    parameter_size: '12B',
+    quantization_level: 'Q4_K_M',
+    context_window: '128,000 tokens',
+    context_tokens: 128000,
+    installed: false,
+    modified_at: new Date().toISOString(),
+    capabilities: ['chat', 'streaming', 'tools', 'code'],
+    description: 'Co-developed with NVIDIA. Built with Tekken tokenizer for extreme multilingual compression and 128k native context length.',
+    use_cases: ['Multilingual projects', 'Long document parsing', 'General coding'],
+    supports_options: ['temperature', 'top_p', 'top_k', 'seed', 'num_ctx', 'num_predict'],
+    download_size_est: '7.1 GB',
+    hardware_profile: {
+      execution_type: 'local_gpu',
+      min_ram_gb: 10,
+      recommended_ram_gb: 16,
+      recommended_vram_gb: 8,
+      storage_required_gb: 7.1,
+      quantization_detail: 'GGUF Q4_K_M (40 layers, Tekken tokenizer)',
+      speed_tier: 'Fast',
+      est_tok_per_sec: { cloud: 'N/A', gpu: '40 - 65 tok/s', cpu: '9 - 16 tok/s' },
+      resource_impact: 'Moderate',
+      offload_advice: 'Recommended on 8GB+ VRAM GPU or 16GB system RAM.',
+      how_it_runs: 'Tekken tokenizer compresses tokens by 30% for higher effective throughput on multi-language inputs.',
+      benchmarks: { coding: 89, reasoning: 90, speed: 89, tool_calling: 90, context: 94 },
+    },
+  },
+  {
+    name: 'llava:13b',
+    display_name: 'LLaVA 1.6 Vision (13B)',
+    provider: 'meta',
+    provider_display: 'LLaVA Team / Open Source',
+    category: 'vision',
+    tags: ['vision', 'local', 'multimodal', 'ocr'],
+    size: 7900000000,
+    parameter_size: '13B',
+    quantization_level: 'Q4_K_M',
+    context_window: '4,096 tokens',
+    context_tokens: 4096,
+    installed: false,
+    modified_at: new Date().toISOString(),
+    capabilities: ['chat', 'streaming', 'vision'],
+    description: 'Open visual instruction-tuned model capable of image understanding, UI screenshot parsing, diagram analysis, and OCR.',
+    use_cases: ['Local visual inspection', 'Diagram decoding', 'UI screenshot understanding'],
+    supports_options: ['temperature', 'top_p', 'top_k', 'seed', 'num_ctx', 'num_predict'],
+    download_size_est: '7.9 GB',
+    hardware_profile: {
+      execution_type: 'local_gpu',
+      min_ram_gb: 12,
+      recommended_ram_gb: 16,
+      recommended_vram_gb: 10,
+      storage_required_gb: 7.9,
+      quantization_detail: 'GGUF Q4_K_M + CLIP ViT-L/14 Vision Projector',
+      speed_tier: 'Fast',
+      est_tok_per_sec: { cloud: 'N/A', gpu: '35 - 55 tok/s', cpu: '8 - 14 tok/s' },
+      resource_impact: 'Moderate',
+      offload_advice: 'Requires 10GB+ VRAM or 16GB system RAM for vision tensor encoding.',
+      how_it_runs: 'Passes uploaded images through CLIP vision encoder into LLaMA language backbone locally.',
+      benchmarks: { coding: 82, reasoning: 86, speed: 86, tool_calling: 80, context: 78 },
+    },
   },
 ];
 
@@ -386,42 +959,189 @@ function getOllamaHost(): string {
   return process.env.OLLAMA_HOST || 'http://127.0.0.1:11434';
 }
 
+export function getSystemHardwareDiagnostics() {
+  const totalMemBytes = os.totalmem();
+  const freeMemBytes = os.freemem();
+  const totalRamGb = Number((totalMemBytes / (1024 * 1024 * 1024)).toFixed(1));
+  const freeRamGb = Number((freeMemBytes / (1024 * 1024 * 1024)).toFixed(1));
+  const cpus = os.cpus() || [];
+  const cpuModel = cpus.length > 0 ? cpus[0].model : 'Multi-core Processor';
+  const cpuCores = cpus.length;
+  const platform = os.platform();
+  const arch = os.arch();
+
+  let tier = 'entry';
+  let maxLocalParam = '8B';
+  if (totalRamGb >= 58) {
+    tier = 'powerhouse';
+    maxLocalParam = '70B';
+  } else if (totalRamGb >= 28) {
+    tier = 'advanced';
+    maxLocalParam = '32B';
+  } else if (totalRamGb >= 14) {
+    tier = 'balanced';
+    maxLocalParam = '14B';
+  }
+
+  return {
+    total_ram_gb: totalRamGb,
+    free_ram_gb: freeRamGb,
+    cpu_cores: cpuCores,
+    cpu_model: cpuModel,
+    arch,
+    platform,
+    tier,
+    max_recommended_param: maxLocalParam,
+    ollama_host: getOllamaHost(),
+  };
+}
+
+export function calculateMachineFit(model: any, hw: ReturnType<typeof getSystemHardwareDiagnostics>) {
+  const isCloud = model.category === 'cloud' || model.provider === 'google' || model.provider === 'minimax' || model.name?.includes(':cloud');
+
+  if (isCloud) {
+    return {
+      status: 'cloud_seamless',
+      badge: 'Zero Local RAM (Cloud)',
+      badge_class: 'fit-cloud',
+      fit_score: 100,
+      expected_tok_sec: model.hardware_profile?.est_tok_per_sec?.cloud || '~90-140 tok/s',
+      execution_mode: 'Cloud Distributed Cluster',
+      execution_summary: 'Dispatched to high-throughput cloud accelerators with zero CPU, RAM, or battery load on this host.',
+      vram_usage: '0 GB (100% Cloud Hosted)',
+      ram_usage: '0 MB local memory footprint',
+      recommendation: 'Runs instantaneously on this host without hardware limitations.',
+    };
+  }
+
+  const minRam = model.hardware_profile?.min_ram_gb || 8;
+  const recRam = model.hardware_profile?.recommended_ram_gb || 16;
+  const totalRam = hw.total_ram_gb;
+
+  if (totalRam >= recRam) {
+    return {
+      status: 'optimal',
+      badge: 'Optimal Local Fit',
+      badge_class: 'fit-optimal',
+      fit_score: 95,
+      expected_tok_sec: model.hardware_profile?.est_tok_per_sec?.gpu || '~40-70 tok/s (GPU) / ~12-20 tok/s (CPU)',
+      execution_mode: 'Local Ollama Engine (llama.cpp)',
+      execution_summary: `Your host has ${totalRam} GB RAM which comfortably exceeds the ${recRam} GB recommended for full context evaluation.`,
+      vram_usage: `${model.hardware_profile?.recommended_vram_gb || 8} GB VRAM for full GPU offload, or ${recRam} GB system RAM for multi-threaded CPU.`,
+      ram_usage: `~${model.hardware_profile?.storage_required_gb || 4.5} GB resident memory`,
+      recommendation: 'Recommended for fast, secure local offline inference on this machine.',
+    };
+  } else if (totalRam >= minRam) {
+    return {
+      status: 'good',
+      badge: 'Runs Well (Moderate RAM)',
+      badge_class: 'fit-good',
+      fit_score: 75,
+      expected_tok_sec: model.hardware_profile?.est_tok_per_sec?.cpu || '~8-16 tok/s',
+      execution_mode: 'Local Ollama (Partial/CPU Offload)',
+      execution_summary: `Host RAM (${totalRam} GB) satisfies the minimum ${minRam} GB requirement. Context window should be kept under 32k for optimal performance.`,
+      vram_usage: `Partial GPU layers or ~${minRam} GB system RAM.`,
+      ram_usage: `~${model.hardware_profile?.storage_required_gb || 4.5} GB resident memory`,
+      recommendation: 'Runs well. Avoid opening multiple high-memory background tasks while running heavy prompts.',
+    };
+  } else {
+    return {
+      status: 'heavy',
+      badge: 'High Resource Load',
+      badge_class: 'fit-heavy',
+      fit_score: 40,
+      expected_tok_sec: '~2-6 tok/s (Heavy CPU Paging)',
+      execution_mode: 'Local Ollama (Memory Constrained)',
+      execution_summary: `Model requires at least ${minRam} GB RAM. With ${totalRam} GB host RAM, system memory pressure may cause paging slowdowns.`,
+      vram_usage: `${model.hardware_profile?.recommended_vram_gb || 16} GB VRAM required for full offload.`,
+      ram_usage: `Exceeds available free memory (${hw.free_ram_gb} GB free of ${totalRam} GB total).`,
+      recommendation: 'Consider using Cloud Frontier models or lighter local models (e.g. 7B/8B or Gemini/MiniMax) for higher throughput.',
+    };
+  }
+}
+
 async function getDynamicModelCatalog(): Promise<any[]> {
+  const catalogMap = new Map<string, any>();
+  const hw = getSystemHardwareDiagnostics();
+
+  // Populate preset catalog first with machine fit calculated
+  for (const m of modelCatalog) {
+    const item: any = { ...m };
+    item.machine_fit = calculateMachineFit(item, hw);
+    catalogMap.set(m.name, item);
+  }
+
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 2500);
+    const timeout = setTimeout(() => controller.abort(), 2000);
     const resp = await fetch(`${getOllamaHost()}/api/tags`, { signal: controller.signal });
     clearTimeout(timeout);
+
     if (resp.ok) {
       const data: any = await resp.json();
       if (Array.isArray(data.models) && data.models.length > 0) {
-        const found = data.models.find((m: any) => m.name === DEFAULT_MODEL || m.name === 'minimax-m3:cloud');
-        if (found) {
-          const isCloud = found.name?.includes(':cloud') || found.details?.families === null || !!found.remote_host;
-          const family = found.details?.family || (isCloud ? 'cloud' : 'ollama');
-          const families = found.details?.families || (isCloud ? ['cloud', 'ollama'] : ['ollama']);
-          return [
-            {
-              name: found.name,
-              display_name: 'MiniMax M3 (Cloud / Ollama)',
-              size: found.size || 0,
-              family,
-              families,
-              parameter_size: found.details?.parameter_size || (isCloud ? 'Cloud' : 'Local'),
-              quantization_level: found.details?.quantization_level || '',
-              modified_at: found.modified_at || new Date().toISOString(),
-              capabilities: found.capabilities || ['chat', 'streaming', 'tools', 'thinking', 'vision'],
-              use_cases: ['general reasoning', 'cloud inference', 'fast coding', 'workspace assistant'],
+        for (const localModel of data.models) {
+          const name = localModel.name;
+          const existing = catalogMap.get(name);
+          const isCloud = name.includes(':cloud') || localModel.remote_host || !localModel.size;
+
+          if (existing) {
+            existing.installed = true;
+            existing.size = localModel.size || existing.size;
+            existing.modified_at = localModel.modified_at || existing.modified_at;
+            if (localModel.details) {
+              if (localModel.details.parameter_size) existing.parameter_size = localModel.details.parameter_size;
+              if (localModel.details.quantization_level) existing.quantization_level = localModel.details.quantization_level;
+            }
+            existing.machine_fit = calculateMachineFit(existing, hw);
+          } else {
+            // New local model detected in Ollama
+            const estGb = localModel.size ? Number((localModel.size / (1024 * 1024 * 1024)).toFixed(1)) : 4.5;
+            const dynamicItem = {
+              name,
+              display_name: `${name} (Local Ollama)`,
+              provider: isCloud ? 'cloud' : 'ollama',
+              provider_display: isCloud ? 'Cloud' : 'Local Ollama',
+              category: isCloud ? 'cloud' : 'general',
+              tags: isCloud ? ['cloud'] : ['local', 'custom'],
+              size: localModel.size || 0,
+              parameter_size: localModel.details?.parameter_size || (isCloud ? 'Cloud' : 'Local'),
+              quantization_level: localModel.details?.quantization_level || 'GGUF',
+              context_window: '32,000 tokens',
+              context_tokens: 32768,
+              installed: true,
+              modified_at: localModel.modified_at || new Date().toISOString(),
+              capabilities: ['chat', 'streaming', 'tools', 'code'],
+              description: `Locally detected Ollama model: ${name}`,
+              use_cases: ['General local inference'],
               supports_options: ['temperature', 'top_p', 'top_k', 'seed', 'num_ctx', 'num_predict'],
-            },
-          ];
+              download_size_est: localModel.size ? `${estGb} GB` : 'Installed',
+              hardware_profile: {
+                execution_type: isCloud ? 'cloud' : 'local_gpu',
+                min_ram_gb: Math.max(8, Math.round(estGb * 1.3)),
+                recommended_ram_gb: Math.max(16, Math.round(estGb * 1.8)),
+                recommended_vram_gb: Math.max(6, Math.round(estGb * 1.1)),
+                storage_required_gb: estGb,
+                quantization_detail: localModel.details?.quantization_level || 'GGUF Quantized',
+                speed_tier: isCloud ? 'Instant Cloud' : 'Fast',
+                est_tok_per_sec: { cloud: isCloud ? '80 - 120 tok/s' : 'N/A', gpu: '35 - 65 tok/s', cpu: '8 - 16 tok/s' },
+                resource_impact: isCloud ? 'Zero' : 'Moderate',
+                offload_advice: isCloud ? 'Zero local resource load.' : `Requires ~${estGb} GB RAM to host weights.`,
+                how_it_runs: `Loaded directly into local Ollama runtime from ${name}.`,
+                benchmarks: { coding: 85, reasoning: 85, speed: 88, tool_calling: 85, context: 85 },
+              },
+            };
+            (dynamicItem as any).machine_fit = calculateMachineFit(dynamicItem, hw);
+            catalogMap.set(name, dynamicItem);
+          }
         }
       }
     }
   } catch {
-    // Fallback if Ollama is unreachable
+    // Ollama not reachable - use static catalog with cloud models active
   }
-  return modelCatalog;
+
+  return Array.from(catalogMap.values());
 }
 
 // Gemini Function Declarations for Workspace Tool Calling
@@ -745,12 +1465,55 @@ function setupApiRoutes(router: express.Router) {
     });
   });
 
+  // System Hardware Diagnostics
+  router.get('/system/hardware', (_req, res) => {
+    try {
+      const hw = getSystemHardwareDiagnostics();
+      res.json(hw);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // Models
   router.get('/models', async (req, res) => {
     try {
       const q = ((req.query.q as string) || '').toLowerCase().trim();
+      const category = (req.query.category as string) || '';
+      const provider = (req.query.provider as string) || '';
+      const installedOnly = req.query.installed === 'true';
+
       const catalog = await getDynamicModelCatalog();
-      const filtered = catalog.filter(m => !q || m.name.toLowerCase().includes(q));
+      let filtered = catalog;
+
+      if (q) {
+        filtered = filtered.filter(m =>
+          m.name.toLowerCase().includes(q) ||
+          (m.display_name && m.display_name.toLowerCase().includes(q)) ||
+          (m.provider_display && m.provider_display.toLowerCase().includes(q)) ||
+          (m.description && m.description.toLowerCase().includes(q)) ||
+          (m.tags && m.tags.some((t: string) => t.toLowerCase().includes(q)))
+        );
+      }
+
+      if (category && category !== 'all') {
+        if (category === 'installed') {
+          filtered = filtered.filter(m => m.installed);
+        } else if (category === 'cloud') {
+          filtered = filtered.filter(m => m.provider === 'google' || m.provider === 'minimax' || m.name.includes(':cloud') || m.category === 'cloud');
+        } else {
+          filtered = filtered.filter(m => m.category === category || (m.tags && m.tags.includes(category)));
+        }
+      }
+
+      if (provider && provider !== 'all') {
+        filtered = filtered.filter(m => m.provider === provider);
+      }
+
+      if (installedOnly) {
+        filtered = filtered.filter(m => m.installed);
+      }
+
       res.json(filtered);
     } catch (err: any) {
       res.status(500).json(formatErrorPayload(500, 'MODEL_LIST_FAILED', 'model', err.message, 'Check model catalog', req));
@@ -2313,6 +3076,11 @@ function resolveFrontendDir(): string {
 
 const frontendDir = resolveFrontendDir();
 app.use('/static', express.static(frontendDir, {
+  setHeaders: (res) => {
+    res.setHeader('Cache-Control', 'no-cache');
+  },
+}));
+app.use(express.static(frontendDir, {
   setHeaders: (res) => {
     res.setHeader('Cache-Control', 'no-cache');
   },

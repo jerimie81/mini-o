@@ -1,3 +1,8 @@
+# Dependencies and build output
+node_modules/
+dist/
+.output/
+
 # Local configuration and credentials
 .env
 mini-o.config.json
