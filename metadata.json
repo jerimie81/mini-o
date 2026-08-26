@@ -1,0 +1,6 @@
+{
+  "name": "Mini-O Local AI Workspace",
+  "description": "A cross-platform local-first AI workspace for Windows and Linux with chat, model management, workspace file explorer, resilient diagnostics, and tool execution.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

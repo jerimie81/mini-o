@@ -1,0 +1,12 @@
+<idea-plugin>
+  <id>com.minio.jetbrains</id>
+  <name>Mini-O MCP</name>
+  <vendor>Mini-O</vendor>
+  <description>Send explicit editor selection context to a local Mini-O MCP server.</description>
+  <depends>com.intellij.modules.platform</depends>
+  <actions>
+    <action id="MiniO.SendSelection" class="com.minio.mcp.SendSelectionAction" text="Mini-O: Send Selection Context" description="Send the selected editor text to Mini-O MCP">
+      <add-to-group group-id="EditorPopupMenu" anchor="last" />
+    </action>
+  </actions>
+</idea-plugin>

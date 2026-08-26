@@ -1,0 +1,35 @@
+# Local configuration and credentials
+.env
+mini-o.config.json
+.env.*
+!.env.example
+
+# Python environments and generated files
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Frontend test dependencies
+tests/frontend/node_modules/
+tests/frontend/coverage/
+
+# Runtime data and local artifacts
+data/*
+!data/.gitkeep
+store/*
+!store/.gitkeep
+logs/*
+!logs/.gitkeep
+mini-o-*.tar.gz
+
+# Deliberately omitted project roadmap
+PROJECT_PROGRESS.md
+
+# Editors and operating systems
+.DS_Store
+.idea/
+.vscode/
+*.swp

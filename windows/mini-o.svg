@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="winGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0078d4"/>
+      <stop offset="50%" stop-color="#5c2d91"/>
+      <stop offset="100%" stop-color="#00bcf2"/>
+    </linearGradient>
+    <linearGradient id="coreGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00a4ef"/>
+      <stop offset="100%" stop-color="#7fba00"/>
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="28" fill="#1e1e2e"/>
+  <rect x="2" y="2" width="124" height="124" rx="26" fill="none" stroke="rgba(255,255,255,0.14)" stroke-width="2"/>
+  
+  <!-- Windows Quadrant Aesthetic Glow -->
+  <circle cx="64" cy="64" r="32" fill="none" stroke="url(#winGrad)" stroke-width="6"/>
+  <circle cx="64" cy="64" r="16" fill="url(#coreGrad)"/>
+
+  <!-- Satellite Nodes -->
+  <circle cx="64" cy="20" r="6" fill="#00bcf2"/>
+  <circle cx="108" cy="64" r="6" fill="#ffb900"/>
+  <circle cx="64" cy="108" r="6" fill="#f25022"/>
+  <circle cx="20" cy="64" r="6" fill="#7fba00"/>
+
+  <!-- Links -->
+  <line x1="64" y1="26" x2="64" y2="32" stroke="#00bcf2" stroke-width="2" stroke-dasharray="2,2"/>
+  <line x1="102" y1="64" x2="96" y2="64" stroke="#ffb900" stroke-width="2" stroke-dasharray="2,2"/>
+  <line x1="64" y1="102" x2="64" y2="96" stroke="#f25022" stroke-width="2" stroke-dasharray="2,2"/>
+  <line x1="26" y1="64" x2="32" y2="64" stroke="#7fba00" stroke-width="2" stroke-dasharray="2,2"/>
+</svg>

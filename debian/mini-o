@@ -1,0 +1,230 @@
+#!/usr/bin/env bash
+# Mini-O CLI Launcher & Management Utility
+set -e
+
+INSTALL_DIR="/opt/mini-o"
+PORT="${PORT:-3000}"
+HOST="${HOST:-127.0.0.1}"
+URL="http://${HOST}:${PORT}"
+PID_FILE="/tmp/mini-o.pid"
+LOG_FILE="/var/log/mini-o/server.log"
+
+USER_SHARE_DIR="${HOME:-/tmp}/.local/share/mini-o"
+# Fallback for user logs if /var/log/mini-o is not writable
+if [ ! -w "/var/log/mini-o" ] 2>/dev/null; then
+    mkdir -p "${USER_SHARE_DIR}" 2>/dev/null || USER_SHARE_DIR="/tmp"
+    LOG_FILE="${USER_SHARE_DIR}/mini-o.log"
+    PID_FILE="${USER_SHARE_DIR}/mini-o.pid"
+fi
+
+# Ensure user data workspace directory
+if [ -z "${MINI_O_DATA_DIR:-}" ]; then
+    if [ -w "/var/lib/mini-o" ] 2>/dev/null && [ "$(id -u)" -eq 0 ]; then
+        export MINI_O_DATA_DIR="/var/lib/mini-o"
+    else
+        USER_DATA_DIR="${USER_SHARE_DIR}/data"
+        mkdir -p "$USER_DATA_DIR" 2>/dev/null || USER_DATA_DIR="/tmp/mini-o-data"
+        export MINI_O_DATA_DIR="$USER_DATA_DIR"
+    fi
+fi
+export MINI_O_FRONTEND_DIR="${INSTALL_DIR}/frontend"
+
+show_help() {
+    echo "Mini-O - Local-first AI Companion & Workspace"
+    echo ""
+    echo "Usage: mini-o <command> [options]"
+    echo ""
+    echo "Commands:"
+    echo "  start       Start Mini-O server in background (daemon mode)"
+    echo "  stop        Stop background Mini-O server"
+    echo "  status      Check server status and health check API"
+    echo "  run         Run Mini-O server in foreground"
+    echo "  open        Start server if needed and open browser interface"
+    echo "  logs        Display and follow server logs"
+    echo "  config      Show configuration path and details"
+    echo "  version     Show installed version"
+    echo "  help        Display this help message"
+    echo ""
+    echo "Environment Variables:"
+    echo "  PORT        Port number (default: 3000)"
+    echo "  HOST        Host interface (default: 127.0.0.1)"
+    echo ""
+}
+
+is_running() {
+    if [ -f "$PID_FILE" ]; then
+        local pid
+        pid=$(cat "$PID_FILE" 2>/dev/null || true)
+        if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+            return 0
+        fi
+    fi
+    # Also check via curl/pkill
+    if curl -s --max-time 1 "${URL}/api/health" >/dev/null 2>&1; then
+        return 0
+    fi
+    return 1
+}
+
+start_server() {
+    if is_running; then
+        echo "Mini-O is already running on ${URL}"
+        return 0
+    fi
+
+    echo "Starting Mini-O server on ${URL}..."
+    cd "$INSTALL_DIR"
+    NODE_ENV=production PORT="$PORT" HOST="$HOST" MINI_O_DATA_DIR="$MINI_O_DATA_DIR" MINI_O_FRONTEND_DIR="$MINI_O_FRONTEND_DIR" node "$INSTALL_DIR/dist/server.cjs" >> "$LOG_FILE" 2>&1 &
+    local new_pid=$!
+    echo "$new_pid" > "$PID_FILE"
+
+    # Wait up to 5 seconds for health
+    local count=0
+    while [ $count -lt 10 ]; do
+        if curl -s --max-time 1 "${URL}/api/health" >/dev/null 2>&1 || curl -s --max-time 1 "${URL}/" >/dev/null 2>&1; then
+            echo "Mini-O server is up and listening on ${URL} (PID: ${new_pid})"
+            return 0
+        fi
+        sleep 0.5
+        count=$((count + 1))
+    done
+
+    if kill -0 "$new_pid" 2>/dev/null; then
+        echo "Mini-O server started with PID ${new_pid}. Logs: ${LOG_FILE}"
+    else
+        echo "Failed to start Mini-O server. Check logs: ${LOG_FILE}"
+        cat "$LOG_FILE" 2>/dev/null | tail -n 20
+        return 1
+    fi
+}
+
+stop_server() {
+    if [ -f "$PID_FILE" ]; then
+        local pid
+        pid=$(cat "$PID_FILE" 2>/dev/null || true)
+        if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+            echo "Stopping Mini-O (PID: ${pid})..."
+            kill "$pid" 2>/dev/null || true
+            sleep 1
+            if kill -0 "$pid" 2>/dev/null; then
+                kill -9 "$pid" 2>/dev/null || true
+            fi
+            rm -f "$PID_FILE"
+            echo "Mini-O stopped."
+            return 0
+        fi
+        rm -f "$PID_FILE"
+    fi
+
+    # Check for systemd service
+    if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet mini-o 2>/dev/null; then
+        echo "Stopping systemd mini-o service..."
+        sudo systemctl stop mini-o
+        return 0
+    fi
+
+    # Fallback to pkill
+    if pgrep -f "dist/server.cjs" >/dev/null 2>&1; then
+        pkill -f "dist/server.cjs" || true
+        echo "Mini-O processes terminated."
+    else
+        echo "Mini-O is not currently running."
+    fi
+}
+
+server_status() {
+    echo "--- Mini-O Status Check ---"
+    if curl -s --max-time 2 "${URL}/api/health" >/dev/null 2>&1; then
+        echo "Status: ONLINE"
+        echo "URL:    ${URL}"
+        if [ -f "$PID_FILE" ]; then
+            echo "PID:    $(cat "$PID_FILE")"
+        fi
+        local health_json
+        health_json=$(curl -s --max-time 2 "${URL}/api/health" 2>/dev/null || true)
+        if [ -n "$health_json" ]; then
+            echo "Health: ${health_json}"
+        fi
+    elif curl -s --max-time 2 "${URL}/" >/dev/null 2>&1; then
+        echo "Status: ONLINE (HTTP 200 on /)"
+        echo "URL:    ${URL}"
+    else
+        echo "Status: OFFLINE"
+        echo "Target: ${URL}"
+    fi
+}
+
+open_browser() {
+    if ! is_running; then
+        start_server
+        sleep 1
+    fi
+
+    echo "Opening ${URL} in default web browser..."
+    if command -v xdg-open >/dev/null 2>&1; then
+        xdg-open "$URL" >/dev/null 2>&1 &
+    elif command -v gnome-open >/dev/null 2>&1; then
+        gnome-open "$URL" >/dev/null 2>&1 &
+    elif command -v sensible-browser >/dev/null 2>&1; then
+        sensible-browser "$URL" >/dev/null 2>&1 &
+    else
+        echo "Please open ${URL} in your web browser."
+    fi
+}
+
+run_foreground() {
+    echo "Running Mini-O in foreground on ${URL}..."
+    cd "$INSTALL_DIR"
+    NODE_ENV=production PORT="$PORT" HOST="$HOST" MINI_O_DATA_DIR="$MINI_O_DATA_DIR" MINI_O_FRONTEND_DIR="$MINI_O_FRONTEND_DIR" exec node "$INSTALL_DIR/dist/server.cjs"
+}
+
+view_logs() {
+    if [ -f "$LOG_FILE" ]; then
+        tail -f -n 50 "$LOG_FILE"
+    elif command -v journalctl >/dev/null 2>&1 && journalctl -u mini-o -n 1 >/dev/null 2>&1; then
+        journalctl -u mini-o -f -n 50
+    else
+        echo "No log file found at ${LOG_FILE}"
+    fi
+}
+
+cmd="${1:-help}"
+
+case "$cmd" in
+    start)
+        start_server
+        ;;
+    stop)
+        stop_server
+        ;;
+    status)
+        server_status
+        ;;
+    run)
+        run_foreground
+        ;;
+    open)
+        open_browser
+        ;;
+    logs)
+        view_logs
+        ;;
+    config)
+        echo "Config locations:"
+        echo "  System: /etc/mini-o/config.json"
+        echo "  Example: ${INSTALL_DIR}/mini-o.config.example.json"
+        echo "  Install: ${INSTALL_DIR}"
+        ;;
+    version)
+        echo "Mini-O v0.1.0 (Debian package build)"
+        ;;
+    help|--help|-h)
+        show_help
+        ;;
+    *)
+        echo "Unknown command: $cmd"
+        echo ""
+        show_help
+        exit 1
+        ;;
+esac

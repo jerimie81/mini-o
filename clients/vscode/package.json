@@ -1,0 +1,14 @@
+{
+  "name": "mini-o-mcp",
+  "displayName": "Mini-O MCP",
+  "version": "0.1.0",
+  "description": "Connect VS Code selection context to a local Mini-O MCP server.",
+  "engines": {"vscode": ">=1.85.0"},
+  "activationEvents": ["onCommand:mini-o.listTools", "onCommand:mini-o.sendSelection"],
+  "main": "extension.js",
+  "configuration": {"properties": {"mini-o.endpoint": {"type": "string", "default": "http://127.0.0.1:8000/api/mcp", "description": "Mini-O MCP Streamable HTTP endpoint"}}},
+  "contributes": {"commands": [
+    {"command": "mini-o.listTools", "title": "Mini-O: List MCP Tools"},
+    {"command": "mini-o.sendSelection", "title": "Mini-O: Send Selection Context"}
+  ]}
+}

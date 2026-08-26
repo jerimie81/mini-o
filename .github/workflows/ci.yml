@@ -1,0 +1,93 @@
+name: Mini-O CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mini-o-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend / Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.12', '3.13']
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            tests/requirements-test.txt
+
+      - name: Install Python dependencies
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/pip install -r requirements.txt -r tests/requirements-test.txt
+
+      - name: Run Python tests
+        run: .venv/bin/pytest -q -c tests/pytest.ini
+
+      - name: Compile Python sources
+        run: .venv/bin/python -m compileall -q backend tests
+
+      - name: Run security scan
+        run: bash scripts/security-check.sh
+
+      - name: Run storage benchmark smoke check
+        run: .venv/bin/python scripts/benchmark.py
+
+  frontend:
+    name: Frontend checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: tests/frontend/package.json
+
+      - name: Install frontend test dependencies
+        working-directory: tests/frontend
+        run: npm install --no-audit --no-fund
+
+      - name: Run frontend tests
+        working-directory: tests/frontend
+        run: npm test
+
+      - name: Check frontend JavaScript syntax
+        run: for file in frontend/js/*.js; do node --check "$file"; done
+
+      - name: Check color contrast
+        run: node tests/frontend/contrast-check.mjs
+
+  shell:
+    name: Shell checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Check shell syntax
+        run: |
+          bash -n start.sh stop.sh install.sh
+          bash -n scripts/*.sh

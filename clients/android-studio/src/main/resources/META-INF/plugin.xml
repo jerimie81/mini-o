@@ -1,0 +1,12 @@
+<idea-plugin>
+  <id>com.minio.androidstudio</id>
+  <name>Mini-O MCP for Android Studio</name>
+  <vendor>Mini-O</vendor>
+  <description>Send selected Android Studio context to a local Mini-O MCP server.</description>
+  <depends>com.intellij.modules.platform</depends>
+  <actions>
+    <action id="MiniOAndroidStudio.SendSelection" class="com.minio.mcp.SendSelectionAction" text="Mini-O: Send Selection Context" description="Send selected Android Studio text to Mini-O MCP">
+      <add-to-group group-id="EditorPopupMenu" anchor="last" />
+    </action>
+  </actions>
+</idea-plugin>

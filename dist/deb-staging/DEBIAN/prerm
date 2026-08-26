@@ -1,0 +1,19 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+    remove|deconfigure)
+        # Stop systemd service if running
+        if [ -d /run/systemd/system ]; then
+            systemctl stop mini-o.service 2>/dev/null || true
+            systemctl disable mini-o.service 2>/dev/null || true
+        fi
+
+        # Terminate any running standalone mini-o processes
+        if command -v pkill >/dev/null 2>&1; then
+            pkill -f "/opt/mini-o/dist/server.cjs" 2>/dev/null || true
+        fi
+    ;;
+esac
+
+exit 0

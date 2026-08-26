@@ -1,0 +1,1 @@
+/home/redrum/.gemini/projects/mini-o/launch-debug.sh

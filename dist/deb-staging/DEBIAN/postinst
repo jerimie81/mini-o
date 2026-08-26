@@ -1,0 +1,48 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+    configure)
+        # Create dedicated application directories
+        mkdir -p /var/log/mini-o
+        mkdir -p /var/lib/mini-o
+        mkdir -p /etc/mini-o
+        chmod 1777 /var/log/mini-o 2>/dev/null || chmod 777 /var/log/mini-o 2>/dev/null || true
+        chmod 1777 /var/lib/mini-o 2>/dev/null || chmod 777 /var/lib/mini-o 2>/dev/null || true
+
+        # Ensure default config exists if not present
+        if [ ! -f /etc/mini-o/config.json ] && [ -f /opt/mini-o/mini-o.config.example.json ]; then
+            cp /opt/mini-o/mini-o.config.example.json /etc/mini-o/config.json
+        fi
+
+        # Make CLI wrapper executable
+        chmod 755 /usr/bin/mini-o || true
+
+        # Reload systemd configuration if systemd is active
+        if [ -d /run/systemd/system ]; then
+            systemctl daemon-reload || true
+        fi
+
+        # Update desktop database and icon caches if available
+        if command -v update-desktop-database >/dev/null 2>&1; then
+            update-desktop-database -q /usr/share/applications || true
+        fi
+
+        if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+            gtk-update-icon-cache -q /usr/share/icons/hicolor || true
+        fi
+
+        echo "================================================================"
+        echo " Mini-O / Redrum AI successfully installed!"
+        echo ""
+        echo " Quick Start:"
+        echo "   • Start in foreground:   mini-o start"
+        echo "   • Open in browser:       mini-o open"
+        echo "   • Enable systemd daemon: sudo systemctl enable --now mini-o"
+        echo "   • Check status:          mini-o status"
+        echo "   • Documentation:         /opt/mini-o/README.md"
+        echo "================================================================"
+    ;;
+esac
+
+exit 0

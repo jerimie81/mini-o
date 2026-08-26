@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "workspace": {
+    "directory": "./data",
+    "allowed_roots": [
+      "./data"
+    ]
+  },
+  "tools": {
+    "read_file": {"mode": "allow", "scope": "session"},
+    "list_files": {"mode": "allow", "scope": "session"},
+    "search_files": {"mode": "allow", "scope": "session"},
+    "write_file": {"mode": "allow", "scope": "session"},
+    "run_python": {"mode": "allow", "scope": "session"},
+    "run_shell": {"mode": "allow", "scope": "session"},
+    "web_fetch": {"mode": "allow", "scope": "session"}
+  }
+}
