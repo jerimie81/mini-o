@@ -7,8 +7,11 @@ import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
 import { GoogleGenAI, Type, Modality, FunctionDeclaration } from '@google/genai';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const __currentDirname = typeof __dirname !== 'undefined'
+  ? __dirname
+  : (typeof import.meta !== 'undefined' && (import.meta as any)?.url
+      ? path.dirname(fileURLToPath((import.meta as any).url))
+      : process.cwd());
 
 const execAsync = promisify(exec);
 
@@ -369,19 +372,474 @@ const toolActivity: Array<{
   error?: string;
 }> = [];
 
-// Available models catalog - MiniMax M3 (Cloud / Ollama) is the dedicated default model
-const modelCatalog = [
+// Available models catalog with structured tiers, location (cloud vs local), parameters, context windows, and capabilities
+export interface ModelCatalogItem {
+  name: string;
+  display_name: string;
+  family: string;
+  families: string[];
+  location: 'cloud' | 'local';
+  tier: 'free' | 'paid';
+  pricing_tier: 'free' | 'paid';
+  pricing_badge: string;
+  pricing_description: string;
+  size: number;
+  parameter_size: string;
+  quantization_level: string;
+  context_window: string;
+  modified_at: string;
+  capabilities: string[];
+  use_cases: string[];
+  description: string;
+  installed: boolean;
+  supports_options: string[];
+}
+
+const modelCatalog: ModelCatalogItem[] = [
+  // ─── CLOUD MODELS: FREE TIER / PREVIEW ───────────────────────────
+  {
+    name: 'gemini-2.5-flash',
+    display_name: 'Gemini 2.5 Flash',
+    family: 'gemini',
+    families: ['gemini', 'cloud', 'google'],
+    location: 'cloud',
+    tier: 'free',
+    pricing_tier: 'free',
+    pricing_badge: 'Free Tier Available',
+    pricing_description: 'Generous free tier on Google AI with high rate limits',
+    size: 0,
+    parameter_size: 'Cloud (Fast)',
+    quantization_level: 'Cloud FP16',
+    context_window: '1M tokens',
+    modified_at: new Date().toISOString(),
+    capabilities: ['chat', 'streaming', 'tools', 'vision', 'multimodal', 'fast', 'search-grounding'],
+    use_cases: ['Fast general reasoning', 'Workspace coding', 'Document analysis', 'Agentic tool calling'],
+    description: "Google's ultra-fast, highly capable multimodal model with a 1M token context window and free tier.",
+    installed: true,
+    supports_options: ['temperature', 'top_p', 'top_k', 'num_predict', 'googleSearch', 'ttsVoice'],
+  },
+  {
+    name: 'gemini-3.7-flash',
+    display_name: 'Gemini 3.7 Flash',
+    family: 'gemini',
+    families: ['gemini', 'cloud', 'google'],
+    location: 'cloud',
+    tier: 'free',
+    pricing_tier: 'free',
+    pricing_badge: 'Free Tier / Preview',
+    pricing_description: 'Free tier supported with hybrid thinking tokens',
+    size: 0,
+    parameter_size: 'Cloud (Reasoning)',
+    quantization_level: 'Cloud FP16',
+    context_window: '1M tokens',
+    modified_at: new Date().toISOString(),
+    capabilities: ['chat', 'streaming', 'tools', 'thinking', 'search-grounding', 'coding', 'vision'],
+    use_cases: ['Hybrid thinking & deep reasoning', 'Web search grounding', 'Complex multi-step tool execution'],
+    description: 'Advanced hybrid reasoning model supporting controllable thinking budgets and real-time Search grounding.',
+    installed: true,
+    supports_options: ['temperature', 'top_p', 'top_k', 'thinkingBudget', 'googleSearch', 'ttsVoice'],
+  },
+  {
+    name: 'gemini-2.5-flash-lite',
+    display_name: 'Gemini 2.5 Flash Lite',
+    family: 'gemini',
+    families: ['gemini', 'cloud', 'google'],
+    location: 'cloud',
+    tier: 'free',
+    pricing_tier: 'free',
+    pricing_badge: 'Free Tier',
+    pricing_description: 'Free tier with lowest latency and highest throughput',
+    size: 0,
+    parameter_size: 'Cloud (Light)',
+    quantization_level: 'Cloud FP16',
+    context_window: '1M tokens',
+    modified_at: new Date().toISOString(),
+    capabilities: ['chat', 'streaming', 'fast', 'low-latency', 'summarization'],
+    use_cases: ['High-throughput quick responses', 'Rapid file summarization', 'Low-latency conversational chat'],
+    description: "Google's lightweight, cost-efficient model optimized for speed, quick edits, and high-frequency queries.",
+    installed: true,
+    supports_options: ['temperature', 'top_p', 'top_k', 'num_predict'],
+  },
   {
     name: 'minimax-m3:cloud',
     display_name: 'MiniMax M3 (Cloud / Ollama)',
-    size: 0,
-    family: 'cloud',
+    family: 'minimax',
     families: ['cloud', 'ollama', 'minimax'],
+    location: 'cloud',
+    tier: 'free',
+    pricing_tier: 'free',
+    pricing_badge: 'Free Cloud Tier',
+    pricing_description: 'Included default workspace model with cloud acceleration',
+    size: 0,
     parameter_size: 'Cloud',
-    quantization_level: '',
+    quantization_level: 'Cloud FP16',
+    context_window: '128k tokens',
     modified_at: new Date().toISOString(),
     capabilities: ['chat', 'streaming', 'tools', 'thinking', 'vision'],
-    use_cases: ['general reasoning', 'cloud inference', 'fast coding', 'workspace assistant'],
+    use_cases: ['General reasoning', 'Cloud inference', 'Fast coding', 'Workspace assistant'],
+    description: 'Dedicated workspace assistant model with tool execution and fast cloud inference.',
+    installed: true,
+    supports_options: ['temperature', 'top_p', 'top_k', 'seed', 'num_ctx', 'num_predict'],
+  },
+
+  // ─── CLOUD MODELS: PAID API TIERS ────────────────────────────────
+  {
+    name: 'gemini-2.5-pro',
+    display_name: 'Gemini 2.5 Pro',
+    family: 'gemini',
+    families: ['gemini', 'cloud', 'google'],
+    location: 'cloud',
+    tier: 'paid',
+    pricing_tier: 'paid',
+    pricing_badge: 'Paid / Pro Tier',
+    pricing_description: 'Standard pay-per-token API pricing on Google Cloud / AI Studio',
+    size: 0,
+    parameter_size: 'Cloud (Large)',
+    quantization_level: 'Cloud FP16',
+    context_window: '2M tokens',
+    modified_at: new Date().toISOString(),
+    capabilities: ['chat', 'streaming', 'tools', 'vision', 'deep-reasoning', 'complex-coding', 'multimodal'],
+    use_cases: ['Complex architectural design', 'Multi-repository code analysis', 'Mathematical proofs', 'Large-document synthesis'],
+    description: "Google's flagship frontier model for complex reasoning, 2M context window analysis, and full-stack engineering.",
+    installed: true,
+    supports_options: ['temperature', 'top_p', 'top_k', 'googleSearch', 'ttsVoice'],
+  },
+  {
+    name: 'deepseek-chat:cloud',
+    display_name: 'DeepSeek V3 (Cloud)',
+    family: 'deepseek',
+    families: ['deepseek', 'cloud'],
+    location: 'cloud',
+    tier: 'paid',
+    pricing_tier: 'paid',
+    pricing_badge: 'Paid API (Low Cost)',
+    pricing_description: 'Ultra-low cost cloud API pricing per million tokens',
+    size: 0,
+    parameter_size: '671B MoE (37B active)',
+    quantization_level: 'Cloud FP8',
+    context_window: '64k tokens',
+    modified_at: new Date().toISOString(),
+    capabilities: ['chat', 'streaming', 'coding', 'reasoning', 'multilingual'],
+    use_cases: ['General programming', 'Multilingual translation', 'Rapid code refactoring'],
+    description: 'DeepSeek-V3 671B MoE architecture delivering frontier-class coding and reasoning at very low API cost.',
+    installed: true,
+    supports_options: ['temperature', 'top_p', 'num_predict'],
+  },
+  {
+    name: 'deepseek-r1:cloud',
+    display_name: 'DeepSeek R1 (Cloud)',
+    family: 'deepseek',
+    families: ['deepseek', 'cloud'],
+    location: 'cloud',
+    tier: 'paid',
+    pricing_tier: 'paid',
+    pricing_badge: 'Paid Cloud Reasoning',
+    pricing_description: 'Cloud API pricing with full 671B MoE RL reasoning',
+    size: 0,
+    parameter_size: '671B MoE (RL)',
+    quantization_level: 'Cloud FP8',
+    context_window: '64k tokens',
+    modified_at: new Date().toISOString(),
+    capabilities: ['chat', 'streaming', 'deep-reasoning', 'math', 'coding', 'thinking'],
+    use_cases: ['Complex mathematical reasoning', 'Algorithm design', 'Formal logic verification'],
+    description: 'Full 671B DeepSeek-R1 reasoning model trained with large-scale reinforcement learning for step-by-step math and coding.',
+    installed: true,
+    supports_options: ['temperature', 'top_p', 'num_predict'],
+  },
+  {
+    name: 'claude-3-5-sonnet:cloud',
+    display_name: 'Claude 3.5 Sonnet (Cloud)',
+    family: 'anthropic',
+    families: ['anthropic', 'cloud'],
+    location: 'cloud',
+    tier: 'paid',
+    pricing_tier: 'paid',
+    pricing_badge: 'Paid API',
+    pricing_description: 'Anthropic commercial API subscription / token usage',
+    size: 0,
+    parameter_size: 'Cloud (Frontier)',
+    quantization_level: 'Cloud',
+    context_window: '200k tokens',
+    modified_at: new Date().toISOString(),
+    capabilities: ['chat', 'streaming', 'coding', 'vision', 'nuanced-writing', 'tools'],
+    use_cases: ['Complex full-stack development', 'Artifact generation', 'Visual comprehension'],
+    description: "Anthropic's frontier model known for exceptional coding precision, nuanced writing, and visual reasoning.",
+    installed: true,
+    supports_options: ['temperature', 'top_p', 'num_predict'],
+  },
+  {
+    name: 'gpt-4o:cloud',
+    display_name: 'OpenAI GPT-4o (Cloud)',
+    family: 'openai',
+    families: ['openai', 'cloud'],
+    location: 'cloud',
+    tier: 'paid',
+    pricing_tier: 'paid',
+    pricing_badge: 'Paid API',
+    pricing_description: 'OpenAI API commercial token pricing',
+    size: 0,
+    parameter_size: 'Cloud (Omni)',
+    quantization_level: 'Cloud',
+    context_window: '128k tokens',
+    modified_at: new Date().toISOString(),
+    capabilities: ['chat', 'streaming', 'tools', 'vision', 'multimodal'],
+    use_cases: ['Omni reasoning', 'General assistance', 'JSON data extraction', 'Workflow automation'],
+    description: "OpenAI's high-speed omni model designed for multimodal text and visual problem solving.",
+    installed: true,
+    supports_options: ['temperature', 'top_p', 'num_predict'],
+  },
+
+  // ─── LOCAL MODELS: FREE OPEN-WEIGHTS (OLLAMA / ON-DEVICE) ─────────
+  {
+    name: 'llama3.3:70b',
+    display_name: 'Llama 3.3 (70B Local)',
+    family: 'llama',
+    families: ['llama', 'ollama', 'meta'],
+    location: 'local',
+    tier: 'free',
+    pricing_tier: 'free',
+    pricing_badge: '100% Free (Open Weights)',
+    pricing_description: 'Free open weights running privately on your hardware via Ollama',
+    size: 42949672960,
+    parameter_size: '70B',
+    quantization_level: 'Q4_K_M',
+    context_window: '128k tokens',
+    modified_at: new Date().toISOString(),
+    capabilities: ['chat', 'streaming', 'tools', 'deep-reasoning', 'coding', 'local-privacy'],
+    use_cases: ['Enterprise private reasoning', 'Offline software engineering', 'Complete data privacy'],
+    description: "Meta's flagship 70B open-weights model rivaling frontier cloud models completely offline on your device.",
+    installed: false,
+    supports_options: ['temperature', 'top_p', 'top_k', 'seed', 'num_ctx', 'num_predict'],
+  },
+  {
+    name: 'llama3.2:3b',
+    display_name: 'Llama 3.2 (3B Local)',
+    family: 'llama',
+    families: ['llama', 'ollama', 'meta'],
+    location: 'local',
+    tier: 'free',
+    pricing_tier: 'free',
+    pricing_badge: '100% Free (Open Weights)',
+    pricing_description: 'Free open weights running privately on your hardware via Ollama',
+    size: 2147483648,
+    parameter_size: '3B',
+    quantization_level: 'Q4_K_M',
+    context_window: '128k tokens',
+    modified_at: new Date().toISOString(),
+    capabilities: ['chat', 'streaming', 'fast', 'local-privacy', 'low-memory'],
+    use_cases: ['Fast local summarization', 'Edge laptops & portable devices', 'Private scratchpad assistant'],
+    description: 'Lightweight local model designed for fast on-device inference with low RAM footprint (~2GB).',
+    installed: false,
+    supports_options: ['temperature', 'top_p', 'top_k', 'seed', 'num_ctx', 'num_predict'],
+  },
+  {
+    name: 'llama3.2:1b',
+    display_name: 'Llama 3.2 (1B Local)',
+    family: 'llama',
+    families: ['llama', 'ollama', 'meta'],
+    location: 'local',
+    tier: 'free',
+    pricing_tier: 'free',
+    pricing_badge: '100% Free (Open Weights)',
+    pricing_description: 'Free open weights running privately on your hardware via Ollama',
+    size: 1395864371,
+    parameter_size: '1B',
+    quantization_level: 'Q4_K_M',
+    context_window: '128k tokens',
+    modified_at: new Date().toISOString(),
+    capabilities: ['chat', 'streaming', 'ultra-fast', 'low-memory', 'local-privacy'],
+    use_cases: ['Ultra-fast local chat', 'Low-resource environments', 'Quick text polishing'],
+    description: "Meta's smallest local model, runs on almost any laptop or embedded device with minimal memory.",
+    installed: false,
+    supports_options: ['temperature', 'top_p', 'top_k', 'seed', 'num_ctx', 'num_predict'],
+  },
+  {
+    name: 'llama3.1:8b',
+    display_name: 'Llama 3.1 (8B Local)',
+    family: 'llama',
+    families: ['llama', 'ollama', 'meta'],
+    location: 'local',
+    tier: 'free',
+    pricing_tier: 'free',
+    pricing_badge: '100% Free (Open Weights)',
+    pricing_description: 'Free open weights running privately on your hardware via Ollama',
+    size: 4939212390,
+    parameter_size: '8B',
+    quantization_level: 'Q4_K_M',
+    context_window: '128k tokens',
+    modified_at: new Date().toISOString(),
+    capabilities: ['chat', 'streaming', 'tools', 'coding', 'local-privacy'],
+    use_cases: ['General local coding', 'Workspace question answering', 'Private daily driver assistant'],
+    description: 'The standard 8B parameter local model for daily workspace coding, tool calling, and general discussion.',
+    installed: false,
+    supports_options: ['temperature', 'top_p', 'top_k', 'seed', 'num_ctx', 'num_predict'],
+  },
+  {
+    name: 'deepseek-r1:8b',
+    display_name: 'DeepSeek R1 (8B Distill Local)',
+    family: 'deepseek',
+    families: ['deepseek', 'ollama'],
+    location: 'local',
+    tier: 'free',
+    pricing_tier: 'free',
+    pricing_badge: '100% Free (Open Weights)',
+    pricing_description: 'Free open weights running privately on your hardware via Ollama',
+    size: 5261334528,
+    parameter_size: '8B',
+    quantization_level: 'Q4_K_M',
+    context_window: '128k tokens',
+    modified_at: new Date().toISOString(),
+    capabilities: ['chat', 'streaming', 'thinking', 'math', 'reasoning', 'local-privacy'],
+    use_cases: ['Local step-by-step thinking', 'Offline math and logic problem solving'],
+    description: 'DeepSeek-R1 distilled on Llama 8B, delivering local reasoning with transparent `<think>` traces.',
+    installed: false,
+    supports_options: ['temperature', 'top_p', 'top_k', 'seed', 'num_ctx', 'num_predict'],
+  },
+  {
+    name: 'deepseek-r1:14b',
+    display_name: 'DeepSeek R1 (14B Distill Local)',
+    family: 'deepseek',
+    families: ['deepseek', 'ollama'],
+    location: 'local',
+    tier: 'free',
+    pricing_tier: 'free',
+    pricing_badge: '100% Free (Open Weights)',
+    pricing_description: 'Free open weights running privately on your hardware via Ollama',
+    size: 9663676416,
+    parameter_size: '14B',
+    quantization_level: 'Q4_K_M',
+    context_window: '128k tokens',
+    modified_at: new Date().toISOString(),
+    capabilities: ['chat', 'streaming', 'thinking', 'complex-reasoning', 'coding', 'local-privacy'],
+    use_cases: ['Advanced offline reasoning', 'Complex coding challenges', 'Analytical breakdown'],
+    description: 'Distilled 14B Qwen-based R1 reasoning model with outstanding math, logic, and coding capabilities.',
+    installed: false,
+    supports_options: ['temperature', 'top_p', 'top_k', 'seed', 'num_ctx', 'num_predict'],
+  },
+  {
+    name: 'qwen2.5-coder:7b',
+    display_name: 'Qwen 2.5 Coder (7B Local)',
+    family: 'qwen',
+    families: ['qwen', 'ollama', 'alibaba'],
+    location: 'local',
+    tier: 'free',
+    pricing_tier: 'free',
+    pricing_badge: '100% Free (Open Weights)',
+    pricing_description: 'Free open weights running privately on your hardware via Ollama',
+    size: 4724464025,
+    parameter_size: '7B',
+    quantization_level: 'Q4_K_M',
+    context_window: '128k tokens',
+    modified_at: new Date().toISOString(),
+    capabilities: ['chat', 'streaming', 'coding', 'tools', 'refactoring', 'local-privacy'],
+    use_cases: ['Offline code generation', 'Bug fixing', 'Syntax analysis', 'Workspace automation scripts'],
+    description: 'Specialized programming model trained on 5.5T tokens of code, excelling at code generation and debugging.',
+    installed: false,
+    supports_options: ['temperature', 'top_p', 'top_k', 'seed', 'num_ctx', 'num_predict'],
+  },
+  {
+    name: 'qwen2.5-coder:14b',
+    display_name: 'Qwen 2.5 Coder (14B Local)',
+    family: 'qwen',
+    families: ['qwen', 'ollama', 'alibaba'],
+    location: 'local',
+    tier: 'free',
+    pricing_tier: 'free',
+    pricing_badge: '100% Free (Open Weights)',
+    pricing_description: 'Free open weights running privately on your hardware via Ollama',
+    size: 9663676416,
+    parameter_size: '14B',
+    quantization_level: 'Q4_K_M',
+    context_window: '128k tokens',
+    modified_at: new Date().toISOString(),
+    capabilities: ['chat', 'streaming', 'advanced-coding', 'multi-language', 'tools', 'local-privacy'],
+    use_cases: ['Full-project coding', 'System architecture review', 'Complex refactoring and tests'],
+    description: 'High-accuracy programming model rivaling frontier models on HumanEval and SWE-bench.',
+    installed: false,
+    supports_options: ['temperature', 'top_p', 'top_k', 'seed', 'num_ctx', 'num_predict'],
+  },
+  {
+    name: 'mistral:7b',
+    display_name: 'Mistral (7B Local)',
+    family: 'mistral',
+    families: ['mistral', 'ollama'],
+    location: 'local',
+    tier: 'free',
+    pricing_tier: 'free',
+    pricing_badge: '100% Free (Open Weights)',
+    pricing_description: 'Free open weights running privately on your hardware via Ollama',
+    size: 4402341478,
+    parameter_size: '7B',
+    quantization_level: 'Q4_K_M',
+    context_window: '32k tokens',
+    modified_at: new Date().toISOString(),
+    capabilities: ['chat', 'streaming', 'fast', 'general-knowledge', 'local-privacy'],
+    use_cases: ['Fast local conversation', 'Text synthesis', 'Document drafting'],
+    description: "Mistral AI's standard 7B open model with fast sliding-window attention and concise reasoning.",
+    installed: false,
+    supports_options: ['temperature', 'top_p', 'top_k', 'seed', 'num_ctx', 'num_predict'],
+  },
+  {
+    name: 'gemma2:9b',
+    display_name: 'Gemma 2 (9B Local)',
+    family: 'gemma',
+    families: ['gemma', 'google', 'ollama'],
+    location: 'local',
+    tier: 'free',
+    pricing_tier: 'free',
+    pricing_badge: '100% Free (Open Weights)',
+    pricing_description: 'Free open weights running privately on your hardware via Ollama',
+    size: 5800000000,
+    parameter_size: '9B',
+    quantization_level: 'Q4_K_M',
+    context_window: '8k tokens',
+    modified_at: new Date().toISOString(),
+    capabilities: ['chat', 'streaming', 'reasoning', 'general-knowledge', 'local-privacy'],
+    use_cases: ['Research discussion', 'Local knowledge queries', 'Technical explanations'],
+    description: "Google's open-weights 9B architecture built on research breakthroughs with stellar benchmark scores.",
+    installed: false,
+    supports_options: ['temperature', 'top_p', 'top_k', 'seed', 'num_ctx', 'num_predict'],
+  },
+  {
+    name: 'phi4:14b',
+    display_name: 'Phi-4 (14B Local)',
+    family: 'phi',
+    families: ['phi', 'microsoft', 'ollama'],
+    location: 'local',
+    tier: 'free',
+    pricing_tier: 'free',
+    pricing_badge: '100% Free (Open Weights)',
+    pricing_description: 'Free open weights running privately on your hardware via Ollama',
+    size: 9126805504,
+    parameter_size: '14B',
+    quantization_level: 'Q4_K_M',
+    context_window: '16k tokens',
+    modified_at: new Date().toISOString(),
+    capabilities: ['chat', 'streaming', 'math', 'logic', 'reasoning', 'local-privacy'],
+    use_cases: ['Synthetic reasoning', 'Mathematical logic', 'Structured data parsing'],
+    description: "Microsoft's 14B state-of-the-art synthetic reasoning and STEM model with high efficiency.",
+    installed: false,
+    supports_options: ['temperature', 'top_p', 'top_k', 'seed', 'num_ctx', 'num_predict'],
+  },
+  {
+    name: 'codellama:7b',
+    display_name: 'Code Llama (7B Local)',
+    family: 'llama',
+    families: ['llama', 'meta', 'ollama'],
+    location: 'local',
+    tier: 'free',
+    pricing_tier: 'free',
+    pricing_badge: '100% Free (Open Weights)',
+    pricing_description: 'Free open weights running privately on your hardware via Ollama',
+    size: 4100000000,
+    parameter_size: '7B',
+    quantization_level: 'Q4_K_M',
+    context_window: '16k tokens',
+    modified_at: new Date().toISOString(),
+    capabilities: ['chat', 'streaming', 'coding', 'infill', 'local-privacy'],
+    use_cases: ['Code completion', 'Docstring generation', 'Script writing'],
+    description: "Meta's specialized Code Llama model for syntax generation, code completion, and infilling.",
+    installed: false,
     supports_options: ['temperature', 'top_p', 'top_k', 'seed', 'num_ctx', 'num_predict'],
   },
 ];
@@ -390,42 +848,65 @@ function getOllamaHost(): string {
   return process.env.OLLAMA_HOST || 'http://127.0.0.1:11434';
 }
 
-async function getDynamicModelCatalog(): Promise<any[]> {
+async function getDynamicModelCatalog(): Promise<ModelCatalogItem[]> {
+  // Start with a clone of the base catalog
+  const catalogMap = new Map<string, ModelCatalogItem>();
+  modelCatalog.forEach(m => catalogMap.set(m.name, { ...m }));
+
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 2500);
     const resp = await fetch(`${getOllamaHost()}/api/tags`, { signal: controller.signal });
     clearTimeout(timeout);
+
     if (resp.ok) {
       const data: any = await resp.json();
       if (Array.isArray(data.models) && data.models.length > 0) {
-        const found = data.models.find((m: any) => m.name === DEFAULT_MODEL || m.name === 'minimax-m3:cloud');
-        if (found) {
-          const isCloud = found.name?.includes(':cloud') || found.details?.families === null || !!found.remote_host;
-          const family = found.details?.family || (isCloud ? 'cloud' : 'ollama');
-          const families = found.details?.families || (isCloud ? ['cloud', 'ollama'] : ['ollama']);
-          return [
-            {
-              name: found.name,
-              display_name: 'MiniMax M3 (Cloud / Ollama)',
-              size: found.size || 0,
-              family,
-              families,
-              parameter_size: found.details?.parameter_size || (isCloud ? 'Cloud' : 'Local'),
-              quantization_level: found.details?.quantization_level || '',
-              modified_at: found.modified_at || new Date().toISOString(),
-              capabilities: found.capabilities || ['chat', 'streaming', 'tools', 'thinking', 'vision'],
-              use_cases: ['general reasoning', 'cloud inference', 'fast coding', 'workspace assistant'],
+        for (const om of data.models) {
+          const rawName = om.name || '';
+          const baseName = rawName.split(':')[0];
+          const isCloud = rawName.includes(':cloud') || om.details?.families === null || !!om.remote_host;
+
+          // Check if we have an existing catalog item matching exact name or base name
+          const existing = catalogMap.get(rawName) || [...catalogMap.values()].find(v => v.name.startsWith(baseName));
+          if (existing) {
+            existing.installed = true;
+            if (om.size) existing.size = om.size;
+            if (om.details?.parameter_size) existing.parameter_size = om.details.parameter_size;
+            if (om.details?.quantization_level) existing.quantization_level = om.details.quantization_level;
+            if (om.modified_at) existing.modified_at = om.modified_at;
+          } else {
+            // Add dynamically discovered local model from Ollama
+            catalogMap.set(rawName, {
+              name: rawName,
+              display_name: `${rawName} (Installed Local)`,
+              family: om.details?.family || 'ollama',
+              families: om.details?.families || ['ollama'],
+              location: isCloud ? 'cloud' : 'local',
+              tier: 'free',
+              pricing_tier: 'free',
+              pricing_badge: isCloud ? 'Cloud' : '100% Free (Installed)',
+              pricing_description: isCloud ? 'Cloud API' : 'Locally installed in Ollama runtime',
+              size: om.size || 0,
+              parameter_size: om.details?.parameter_size || (isCloud ? 'Cloud' : 'Local'),
+              quantization_level: om.details?.quantization_level || '',
+              context_window: '32k tokens',
+              modified_at: om.modified_at || new Date().toISOString(),
+              capabilities: ['chat', 'streaming', 'tools', 'local-privacy'],
+              use_cases: ['Custom local inference', 'Offline tasks'],
+              description: `Installed model on local Ollama server (${rawName}).`,
+              installed: true,
               supports_options: ['temperature', 'top_p', 'top_k', 'seed', 'num_ctx', 'num_predict'],
-            },
-          ];
+            });
+          }
         }
       }
     }
   } catch {
-    // Fallback if Ollama is unreachable
+    // Fallback if Ollama is unreachable; catalog remains populated
   }
-  return modelCatalog;
+
+  return Array.from(catalogMap.values());
 }
 
 // Gemini Function Declarations for Workspace Tool Calling
@@ -749,12 +1230,71 @@ function setupApiRoutes(router: express.Router) {
     });
   });
 
-  // Models
+  // Models Catalog with Multi-Criteria Filtering & Metadata
+  router.get('/models/meta', async (req, res) => {
+    try {
+      const catalog = await getDynamicModelCatalog();
+      const meta = {
+        total: catalog.length,
+        cloud: catalog.filter(m => m.location === 'cloud').length,
+        local: catalog.filter(m => m.location === 'local').length,
+        free: catalog.filter(m => m.tier === 'free').length,
+        paid: catalog.filter(m => m.tier === 'paid').length,
+        installed: catalog.filter(m => m.installed).length,
+        families: Array.from(new Set(catalog.flatMap(m => m.families || [m.family]))).filter(Boolean),
+      };
+      res.json(meta);
+    } catch (err: any) {
+      res.status(500).json(formatErrorPayload(500, 'MODEL_META_FAILED', 'model', err.message, 'Check model catalog', req));
+    }
+  });
+
   router.get('/models', async (req, res) => {
     try {
       const q = ((req.query.q as string) || '').toLowerCase().trim();
+      const tier = ((req.query.tier as string) || 'all').toLowerCase().trim();
+      const location = ((req.query.location as string) || (req.query.provider as string) || 'all').toLowerCase().trim();
+      const family = ((req.query.family as string) || 'all').toLowerCase().trim();
+
       const catalog = await getDynamicModelCatalog();
-      const filtered = catalog.filter(m => !q || m.name.toLowerCase().includes(q));
+      const filtered = catalog.filter(m => {
+        // Query search
+        if (q) {
+          const matchName = m.name.toLowerCase().includes(q);
+          const matchDisplay = (m.display_name || '').toLowerCase().includes(q);
+          const matchDesc = (m.description || '').toLowerCase().includes(q);
+          const matchFamily = (m.family || '').toLowerCase().includes(q);
+          const matchCapabilities = (m.capabilities || []).some(c => c.toLowerCase().includes(q));
+          const matchUseCases = (m.use_cases || []).some(u => u.toLowerCase().includes(q));
+          if (!matchName && !matchDisplay && !matchDesc && !matchFamily && !matchCapabilities && !matchUseCases) {
+            return false;
+          }
+        }
+
+        // Tier filter (free vs paid)
+        if (tier && tier !== 'all') {
+          if (m.tier !== tier && m.pricing_tier !== tier) {
+            return false;
+          }
+        }
+
+        // Location filter (cloud vs local)
+        if (location && location !== 'all') {
+          if (m.location !== location) {
+            return false;
+          }
+        }
+
+        // Family filter
+        if (family && family !== 'all') {
+          if (m.family !== family && !(m.families || []).includes(family)) {
+            return false;
+          }
+        }
+
+        return true;
+      });
+
       res.json(filtered);
     } catch (err: any) {
       res.status(500).json(formatErrorPayload(500, 'MODEL_LIST_FAILED', 'model', err.message, 'Check model catalog', req));
@@ -2303,8 +2843,8 @@ function resolveFrontendDir(): string {
   }
   const candidates = [
     path.join(rootDir, 'frontend'),
-    path.join(__dirname, '..', 'frontend'),
-    path.join(__dirname, 'frontend'),
+    path.join(__currentDirname, '..', 'frontend'),
+    path.join(__currentDirname, 'frontend'),
     '/opt/mini-o/frontend',
   ];
   for (const c of candidates) {

@@ -79,10 +79,222 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .primary:disabled { cursor: not-allowed; opacity: .5; }
 .danger { background: var(--danger); color: #fff; border: 1px solid var(--danger); }
 .secondary { width: 100%; }
-.model-picker { display: grid; grid-template-columns: 1fr 34px; gap: 6px; align-items: center; }
-.model-picker label { grid-column: 1 / -1; color: var(--text-muted); font-size: 12px; font-weight: 600; }
+.model-picker { display: flex; flex-direction: column; gap: 8px; }
+.model-picker-header { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.model-picker-header label { color: var(--text-muted); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; margin: 0; }
 select, input, textarea { background: var(--surface-raised); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text); }
-.model-picker select { width: 100%; min-width: 0; padding: 8px; }
+.model-search { min-width: 0; width: 100%; padding: 7px 9px; font-size: 12px; }
+
+.model-filter-row { display: flex; gap: 4px; width: 100%; }
+.filter-chip {
+  flex: 1;
+  padding: 5px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  cursor: pointer;
+  text-align: center;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+.filter-chip:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+  border-color: var(--accent-strong);
+}
+.filter-chip.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.model-picker select {
+  width: 100%;
+  min-width: 0;
+  padding: 8px 10px;
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+}
+.model-picker select optgroup {
+  font-weight: 700;
+  color: var(--accent);
+  background: var(--surface);
+  font-size: 12px;
+  padding: 4px 0;
+}
+.model-picker select option {
+  font-weight: normal;
+  color: var(--text);
+  background: var(--surface-raised);
+  padding: 6px;
+}
+
+.model-picker-actions { display: grid; grid-template-columns: 1fr 34px 34px; gap: 6px; align-items: center; }
+.model-picker-actions .secondary { padding: 7px 10px; font-size: 12px; text-align: center; }
+
+/* Rich Model Catalog Modal Styles */
+.modal-catalog-container {
+  width: min(880px, 94vw);
+  max-height: 86vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  padding: 24px;
+  gap: 16px;
+  overflow: hidden;
+}
+.modal-catalog-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 14px;
+}
+.modal-catalog-header h2 { margin: 0 0 4px; font-size: 18px; font-weight: 700; }
+.modal-catalog-header p { margin: 0; color: var(--text-muted); font-size: 12px; }
+
+.modal-catalog-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  background: var(--surface-raised);
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+}
+.modal-catalog-search {
+  flex: 1 1 220px;
+  padding: 8px 12px;
+  font-size: 13px;
+}
+.catalog-filter-pills {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.catalog-pill {
+  padding: 5px 10px;
+  font-size: 12px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-weight: 600;
+  transition: all 0.15s ease;
+}
+.catalog-pill:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+.catalog-pill.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.modal-catalog-grid {
+  flex: 1;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+  padding-right: 4px;
+}
+.catalog-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.catalog-card:hover {
+  border-color: var(--accent-strong);
+  background: var(--surface-hover);
+}
+.catalog-card.active-model {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.catalog-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 6px;
+}
+.catalog-card-title {
+  font-size: 14px;
+  font-weight: 700;
+  margin: 0;
+  color: var(--text);
+  line-height: 1.3;
+}
+.catalog-card-name {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+.catalog-badges {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin: 2px 0;
+}
+.badge-tag {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 999px;
+  letter-spacing: 0.02em;
+}
+.badge-cloud { background: rgba(65, 107, 208, 0.18); color: var(--accent); border: 1px solid var(--accent); }
+.badge-local { background: rgba(147, 51, 234, 0.18); color: #c084fc; border: 1px solid #c084fc; }
+.badge-free { background: rgba(86, 217, 138, 0.18); color: var(--success); border: 1px solid var(--success); }
+.badge-paid { background: rgba(244, 201, 93, 0.18); color: var(--warning); border: 1px solid var(--warning); }
+
+.catalog-card-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.45;
+  flex: 1;
+}
+.catalog-specs {
+  display: flex;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--surface);
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+}
+.catalog-specs span { font-weight: 600; color: var(--text); }
+
+.catalog-card-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: auto;
+}
+.catalog-card-actions button {
+  flex: 1;
+  padding: 7px 10px;
+  font-size: 12px;
+  font-weight: 600;
+}
 .field-help, .shortcut-hint { color: var(--text-muted); font-size: 11px; margin: -6px 0 0; }
 .conversation-list { flex: 1; list-style: none; min-height: 80px; overflow-y: auto; padding: 0; margin: 0; }
 .conversation-tools { display: flex; gap: 6px; }

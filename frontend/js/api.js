@@ -95,7 +95,22 @@ const invalidate = prefix => {
 
 export const api = {
   health: () => getJson("/api/health", 1),
-  models: (q = "", signal) => cachedJson(`/api/models?q=${encodeURIComponent(q)}`, 4000, signal),
+  models: (params = "", signal) => {
+    let url = "/api/models";
+    if (typeof params === "string") {
+      url += `?q=${encodeURIComponent(params)}`;
+    } else if (params && typeof params === "object") {
+      const searchParams = new URLSearchParams();
+      if (params.q) searchParams.set("q", params.q);
+      if (params.tier && params.tier !== "all") searchParams.set("tier", params.tier);
+      if (params.location && params.location !== "all") searchParams.set("location", params.location);
+      if (params.family && params.family !== "all") searchParams.set("family", params.family);
+      const queryString = searchParams.toString();
+      if (queryString) url += `?${queryString}`;
+    }
+    return cachedJson(url, 2000, signal);
+  },
+  modelsMeta: (signal) => cachedJson("/api/models/meta", 4000, signal),
   model: (name, signal) => getJson(`/api/models/${encodeURIComponent(name)}`, 3, signal),
   pullModel: (name, signal) => fetch(`/api/models/${encodeURIComponent(name)}/pull`, { method: "POST", signal }),
   deleteModel: (name) => fetch(`/api/models/${encodeURIComponent(name)}`, { method: "DELETE" }).then(json),

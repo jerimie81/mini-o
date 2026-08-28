@@ -24,6 +24,10 @@ migratePreferenceSchema(localStorage);
 
 const state = {
   model: storage.get("model", "minimax-m3:cloud"),
+  modelLocationFilter: storage.get("model-location-filter", "all"),
+  modelTierFilter: storage.get("model-tier-filter", "all"),
+  availableModels: [],
+  modelMeta: { total: 0, cloud: 0, local: 0, free: 0, paid: 0, families: [] },
   conversationId: null,
   messages: [],
   useTools: storage.get("tools", "true") !== "false",
@@ -376,6 +380,12 @@ function showModal(title, body, actions = "") {
   modal.classList.remove("hidden");
   modal.querySelector("button")?.focus();
 }
+function showCustomModal(content) {
+  const modal = document.getElementById("modal");
+  modal.innerHTML = content;
+  modal.classList.remove("hidden");
+  modal.querySelector("button, input")?.focus();
+}
 function closeModal() { document.getElementById("modal").classList.add("hidden"); }
 
 function setPanel(panel, open) {
@@ -477,27 +487,74 @@ async function loadModels() {
   const select = document.getElementById("model-select");
   setStatus("", "Checking connection…");
   try {
-    const models = await api.models(document.getElementById("model-search")?.value || "", state.modelRequest.signal);
+    const q = document.getElementById("model-search")?.value || "";
+    const [models, meta] = await Promise.all([
+      api.models({
+        q,
+        location: state.modelLocationFilter,
+        tier: state.modelTierFilter
+      }, state.modelRequest.signal),
+      api.modelsMeta(state.modelRequest.signal).catch(() => null)
+    ]);
+    
+    state.availableModels = models || [];
+    if (meta) {
+      state.modelMeta = meta;
+      updateFilterButtons(meta);
+    }
+    
     select.innerHTML = "";
-    models.forEach(model => {
-      const option = document.createElement("option");
-      option.value = model.name;
-      const isGemini = model.name.startsWith("gemini") || model.name.startsWith("imagen");
-      const isCloud = isGemini || model.name.includes(":cloud") || model.family === "cloud";
-      const badge = isGemini ? "✨ " : (model.name.includes(":cloud") ? "☁️ " : "");
-      const typeLabel = isCloud ? "Cloud AI" : formatBytes(model.size);
-      option.textContent = `${state.favoriteModels.includes(model.name) ? "★ " : ""}${badge}${model.name} · ${typeLabel}`;
-      select.appendChild(option);
-    });
-    if (!state.model || state.model !== "minimax-m3:cloud" || !models.some(m => m.name === state.model)) {
-      const preferred = models.find(m => m.name === "minimax-m3:cloud") || models[0];
+    if (!models || models.length === 0) {
+      select.innerHTML = "<option value=''>No models match current filter</option>";
+    } else {
+      const cloudFree = [];
+      const cloudPaid = [];
+      const localModels = [];
+
+      models.forEach(m => {
+        const isCloud = m.location === "cloud" || m.name.includes(":cloud") || m.family === "cloud";
+        const isPaid = m.tier === "paid" || m.pricing_tier === "paid";
+        if (isCloud) {
+          if (isPaid) cloudPaid.push(m);
+          else cloudFree.push(m);
+        } else {
+          localModels.push(m);
+        }
+      });
+
+      const appendGroup = (label, list) => {
+        if (!list.length) return;
+        const optgroup = document.createElement("optgroup");
+        optgroup.label = label;
+        list.forEach(model => {
+          const option = document.createElement("option");
+          option.value = model.name;
+          const isFav = state.favoriteModels.includes(model.name);
+          const icon = model.location === "cloud" ? (model.name.startsWith("gemini") ? "✨" : "☁️") : "💻";
+          const tierTag = model.tier === "paid" ? "💳 Paid" : "🟢 Free";
+          const metaPart = model.context_window ? ` · ${model.context_window}` : (model.size ? ` · ${formatBytes(model.size)}` : "");
+          option.textContent = `${isFav ? "★ " : ""}${icon} ${model.display_name || model.name} (${tierTag}${metaPart})`;
+          optgroup.appendChild(option);
+        });
+        select.appendChild(optgroup);
+      };
+
+      appendGroup("☁️ Cloud Models · Free Tier", cloudFree);
+      appendGroup("☁️ Cloud Models · Paid API", cloudPaid);
+      appendGroup("💻 Local Models · Free Open-Weights", localModels);
+    }
+
+    if (!state.model || !models.some(m => m.name === state.model)) {
+      const preferred = models.find(m => m.name === "minimax-m3:cloud") ||
+                        models.find(m => m.name.startsWith("gemini-2.5-flash")) ||
+                        models[0];
       if (preferred) {
         state.model = preferred.name;
         storage.set("model", state.model);
       }
     }
-    select.value = state.model;
-    document.getElementById("current-model").textContent = state.model || "No model";
+    select.value = state.model || "";
+    updateCurrentModelBadge();
     updateFavoriteButton();
     updateSendState();
     setStatus("online", `Ready · ${models.length} model${models.length === 1 ? "" : "s"}`);
@@ -508,6 +565,40 @@ async function loadModels() {
     updateSendState();
     setStatus("offline", "Server offline");
   }
+}
+
+function updateCurrentModelBadge() {
+  const badgeEl = document.getElementById("current-model");
+  if (!badgeEl) return;
+  if (!state.model) {
+    badgeEl.textContent = "No model";
+    return;
+  }
+  const current = state.availableModels.find(m => m.name === state.model);
+  if (current) {
+    const locIcon = current.location === "cloud" ? "☁️" : "💻";
+    const tierIcon = current.tier === "paid" ? "💳 Paid" : "🟢 Free";
+    badgeEl.textContent = `${locIcon} ${current.display_name || current.name} (${tierIcon})`;
+    badgeEl.title = `${current.name} · ${current.location || "cloud"} · ${current.tier || "free"} · ${current.description || ""}`;
+  } else {
+    badgeEl.textContent = state.model;
+  }
+}
+
+function updateFilterButtons(meta = state.modelMeta) {
+  document.querySelectorAll("[data-filter-group='location']").forEach(btn => {
+    const val = btn.dataset.filterValue;
+    btn.classList.toggle("active", val === state.modelLocationFilter);
+    if (val === "cloud" && meta?.cloud != null) btn.title = `Cloud models (${meta.cloud})`;
+    if (val === "local" && meta?.local != null) btn.title = `Local models (${meta.local})`;
+  });
+
+  document.querySelectorAll("[data-filter-group='tier']").forEach(btn => {
+    const val = btn.dataset.filterValue;
+    btn.classList.toggle("active", val === state.modelTierFilter);
+    if (val === "free" && meta?.free != null) btn.title = `Free tier & open-weights (${meta.free})`;
+    if (val === "paid" && meta?.paid != null) btn.title = `Paid API models (${meta.paid})`;
+  });
 }
 
 function formatBytes(value) {
@@ -632,7 +723,7 @@ function bindWelcomeCards() {
 document.getElementById("model-select").onchange = event => {
   state.model = event.target.value;
   storage.set("model", state.model);
-  document.getElementById("current-model").textContent = state.model || "No model";
+  updateCurrentModelBadge();
   updateFavoriteButton();
   updateSendState();
 };
@@ -659,42 +750,248 @@ document.getElementById("model-details").onclick = async () => {
   if (!state.model) return;
   try {
     const m = await api.model(state.model);
-    showModal(m.name, `<p>Family: ${m.family || "unknown"}</p><p>Parameters: ${m.parameter_size || "unknown"}</p><p>Quantization: ${m.quantization_level || "unknown"}</p><p>Size: ${formatBytes(m.size)}</p><p>Capabilities: ${m.capabilities.join(", ")}</p><p>Recommended use: ${m.use_cases.join(", ")}</p>`, '<div class="modal-actions"><button class="primary modal-close">Close</button></div>');
+    const isCloud = m.location === "cloud" || m.name.includes(":cloud") || m.family === "cloud";
+    const locBadge = isCloud ? `<span class="badge-tag badge-cloud">☁️ Cloud</span>` : `<span class="badge-tag badge-local">💻 Local (Ollama)</span>`;
+    const tierBadge = (m.tier === "paid" || m.pricing_tier === "paid") ? `<span class="badge-tag badge-paid">💳 Paid Tier</span>` : `<span class="badge-tag badge-free">🟢 Free Tier</span>`;
+
+    showModal(
+      `${m.display_name || m.name}`,
+      `<div class="catalog-badges" style="margin-bottom: 12px;">${locBadge} ${tierBadge}</div>
+       <p><strong>Model ID:</strong> <code>${m.name}</code></p>
+       <p><strong>Description:</strong> ${m.description || "Versatile AI language model."}</p>
+       <p><strong>Family:</strong> ${m.family || "general"}</p>
+       <p><strong>Parameters:</strong> ${m.parameter_size || "Cloud-scale"}</p>
+       <p><strong>Context Window:</strong> ${m.context_window || "128k tokens"}</p>
+       <p><strong>Quantization / Size:</strong> ${m.quantization_level || (m.size ? formatBytes(m.size) : "Cloud API")}</p>
+       <p><strong>Capabilities:</strong> ${(m.capabilities || []).join(", ") || "chat, streaming"}</p>
+       <p><strong>Recommended Use:</strong> ${(m.use_cases || []).join(", ") || "general coding and conversation"}</p>`,
+      `<div class="modal-actions">
+         <button class="secondary" id="detail-toggle-fav">${state.favoriteModels.includes(m.name) ? "★ Unfavorite" : "☆ Add Favorite"}</button>
+         <button class="primary modal-close">Close</button>
+       </div>`
+    );
+    document.getElementById("detail-toggle-fav").onclick = () => {
+      document.getElementById("favorite-model").click();
+      closeModal();
+    };
   } catch (e) { notify("error", e.message); }
 };
 
-document.getElementById("pull-model").onclick = async () => {
-  const name = prompt("Ollama model name to pull", "llama3.1");
-  if (!name?.trim()) return;
-  const button = document.getElementById("pull-model");
-  button.disabled = true;
-  try {
-    const res = await api.pullModel(name.trim());
-    const reader = res.body.getReader(), decoder = new TextDecoder();
-    let buffer = "", latest = "Starting pull…";
-    while (true) {
-      const { value, done } = await reader.read();
-      buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
-      const blocks = buffer.split("\n\n");
-      buffer = blocks.pop() || "";
-      blocks.forEach(block => {
-        const line = block.split("\n").find(x => x.startsWith("data: "));
-        if (line) {
-          try { latest = JSON.parse(line.slice(6)).status || latest; } catch {}
-        }
-      });
-      if (done) break;
-      button.textContent = latest;
+// Filter chip event bindings for Location (All / Cloud / Local)
+document.querySelectorAll("[data-filter-group='location']").forEach(btn => {
+  btn.onclick = () => {
+    state.modelLocationFilter = btn.dataset.filterValue;
+    storage.set("model-location-filter", state.modelLocationFilter);
+    updateFilterButtons();
+    loadModels();
+  };
+});
+
+// Filter chip event bindings for Tier (All / Free / Paid)
+document.querySelectorAll("[data-filter-group='tier']").forEach(btn => {
+  btn.onclick = () => {
+    state.modelTierFilter = btn.dataset.filterValue;
+    storage.set("model-tier-filter", state.modelTierFilter);
+    updateFilterButtons();
+    loadModels();
+  };
+});
+
+// Rich Model Catalog Explorer Modal
+async function openModelCatalogModal() {
+  let catalogSearch = "";
+  let catalogLoc = state.modelLocationFilter;
+  let catalogTier = state.modelTierFilter;
+
+  const renderCatalogView = async () => {
+    try {
+      const [models, meta] = await Promise.all([
+        api.models({ q: catalogSearch, location: catalogLoc, tier: catalogTier }),
+        api.modelsMeta().catch(() => ({ total: 0, cloud: 0, local: 0, free: 0, paid: 0 }))
+      ]);
+
+      const modalHtml = `
+        <div class="modal-catalog-container">
+          <div class="modal-catalog-header">
+            <div>
+              <h2 id="modal-title">AI Model Explorer & Catalog</h2>
+              <p>Filter across Free/Paid tiers, Cloud/Local hosting, and explore model capabilities.</p>
+            </div>
+            <button class="icon-button modal-close" title="Close" aria-label="Close catalog">×</button>
+          </div>
+
+          <div class="modal-catalog-toolbar">
+            <input id="catalog-search-input" class="modal-catalog-search" placeholder="Search by model name, family, task, coding…" value="${catalogSearch}" />
+            
+            <div class="catalog-filter-pills" role="group" aria-label="Location filter">
+              <button type="button" class="catalog-pill ${catalogLoc === 'all' ? 'active' : ''}" data-cat-loc="all">All Hosts (${meta.total || models.length})</button>
+              <button type="button" class="catalog-pill ${catalogLoc === 'cloud' ? 'active' : ''}" data-cat-loc="cloud">☁️ Cloud (${meta.cloud || 0})</button>
+              <button type="button" class="catalog-pill ${catalogLoc === 'local' ? 'active' : ''}" data-cat-loc="local">💻 Local (${meta.local || 0})</button>
+            </div>
+
+            <div class="catalog-filter-pills" role="group" aria-label="Tier filter">
+              <button type="button" class="catalog-pill ${catalogTier === 'all' ? 'active' : ''}" data-cat-tier="all">All Tiers</button>
+              <button type="button" class="catalog-pill ${catalogTier === 'free' ? 'active' : ''}" data-cat-tier="free">🟢 Free (${meta.free || 0})</button>
+              <button type="button" class="catalog-pill ${catalogTier === 'paid' ? 'active' : ''}" data-cat-tier="paid">💳 Paid (${meta.paid || 0})</button>
+            </div>
+          </div>
+
+          <div class="modal-catalog-grid" id="catalog-cards-grid">
+            ${models.length === 0 ? `<p class="empty-state" style="grid-column: 1/-1;">No models found matching your search and filter criteria.</p>` :
+              models.map(m => {
+                const isSelected = m.name === state.model;
+                const isFav = state.favoriteModels.includes(m.name);
+                const isCloud = m.location === "cloud" || m.name.includes(":cloud") || m.family === "cloud";
+                const isPaid = m.tier === "paid" || m.pricing_tier === "paid";
+                
+                return `
+                  <article class="catalog-card ${isSelected ? 'active-model' : ''}" data-model-id="${m.name}">
+                    <div class="catalog-card-header">
+                      <div>
+                        <h4 class="catalog-card-title">${isFav ? '★ ' : ''}${m.display_name || m.name}</h4>
+                        <div class="catalog-card-name">${m.name}</div>
+                      </div>
+                    </div>
+
+                    <div class="catalog-badges">
+                      ${isCloud ? '<span class="badge-tag badge-cloud">☁️ Cloud</span>' : '<span class="badge-tag badge-local">💻 Local</span>'}
+                      ${isPaid ? '<span class="badge-tag badge-paid">💳 Paid Tier</span>' : '<span class="badge-tag badge-free">🟢 Free Tier</span>'}
+                      ${m.family ? `<span class="badge-tag" style="background:var(--surface);border:1px solid var(--border);color:var(--text);">${m.family}</span>` : ''}
+                    </div>
+
+                    <div class="catalog-card-desc">${m.description || 'Versatile AI language model with fast inference.'}</div>
+
+                    <div class="catalog-specs">
+                      <div>Ctx: <span>${m.context_window || '128k'}</span></div>
+                      <div>Params: <span>${m.parameter_size || 'Cloud'}</span></div>
+                    </div>
+
+                    <div class="catalog-card-actions">
+                      <button class="secondary catalog-btn-fav" data-model="${m.name}" title="Favorite">${isFav ? '★' : '☆'}</button>
+                      ${isSelected ?
+                        `<button class="primary" disabled>✓ Active</button>` :
+                        `<button class="primary catalog-btn-select" data-model="${m.name}">Select</button>`
+                      }
+                    </div>
+                  </article>
+                `;
+              }).join("")
+            }
+          </div>
+
+          <div class="modal-actions" style="justify-content: space-between; align-items: center; border-top: 1px solid var(--border); padding-top: 12px; margin-top: 0;">
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <input id="pull-custom-input" placeholder="Pull custom Ollama model (e.g. qwen2.5:7b)" style="padding: 7px 10px; font-size: 12px; width: 280px;" />
+              <button id="pull-custom-btn" class="secondary" style="width: auto; padding: 7px 12px; font-size: 12px;">⬇ Pull Model</button>
+            </div>
+            <button class="primary modal-close">Done</button>
+          </div>
+        </div>
+      `;
+
+      showCustomModal(modalHtml);
+      bindCatalogEvents();
+    } catch (err) {
+      notify("error", `Failed to load catalog: ${err.message}`);
     }
-    notify("success", `${name} is ready`);
-    await loadModels();
-  } catch (e) {
-    notify("error", `Model pull failed: ${e.message}`);
-  } finally {
-    button.disabled = false;
-    button.textContent = "＋ Pull model";
-  }
-};
+  };
+
+  const bindCatalogEvents = () => {
+    const searchInput = document.getElementById("catalog-search-input");
+    if (searchInput) {
+      let timer;
+      searchInput.oninput = (e) => {
+        catalogSearch = e.target.value;
+        clearTimeout(timer);
+        timer = setTimeout(renderCatalogView, 220);
+      };
+      searchInput.focus();
+      searchInput.setSelectionRange(searchInput.value.length, searchInput.value.length);
+    }
+
+    document.querySelectorAll("[data-cat-loc]").forEach(btn => {
+      btn.onclick = () => {
+        catalogLoc = btn.dataset.catLoc;
+        state.modelLocationFilter = catalogLoc;
+        storage.set("model-location-filter", catalogLoc);
+        renderCatalogView();
+        loadModels();
+      };
+    });
+
+    document.querySelectorAll("[data-cat-tier]").forEach(btn => {
+      btn.onclick = () => {
+        catalogTier = btn.dataset.catTier;
+        state.modelTierFilter = catalogTier;
+        storage.set("model-tier-filter", catalogTier);
+        renderCatalogView();
+        loadModels();
+      };
+    });
+
+    document.querySelectorAll(".catalog-btn-select").forEach(btn => {
+      btn.onclick = () => {
+        const modelName = btn.dataset.model;
+        state.model = modelName;
+        storage.set("model", state.model);
+        document.getElementById("model-select").value = state.model;
+        updateCurrentModelBadge();
+        updateFavoriteButton();
+        updateSendState();
+        closeModal();
+        notify("success", `Switched active model to ${modelName}`);
+      };
+    });
+
+    document.querySelectorAll(".catalog-btn-fav").forEach(btn => {
+      btn.onclick = () => {
+        const name = btn.dataset.model;
+        state.favoriteModels = state.favoriteModels.includes(name)
+          ? state.favoriteModels.filter(n => n !== name)
+          : [...state.favoriteModels, name];
+        storage.set("favorite-models", JSON.stringify(state.favoriteModels));
+        updateFavoriteButton();
+        renderCatalogView();
+        loadModels();
+      };
+    });
+
+    const pullBtn = document.getElementById("pull-custom-btn");
+    const pullInput = document.getElementById("pull-custom-input");
+    if (pullBtn && pullInput) {
+      pullBtn.onclick = async () => {
+        const name = pullInput.value.trim();
+        if (!name) return notify("warning", "Enter an Ollama model name (e.g., phi4, qwen2.5)");
+        pullBtn.disabled = true;
+        pullBtn.textContent = "Pulling…";
+        try {
+          const res = await api.pullModel(name);
+          const reader = res.body.getReader(), decoder = new TextDecoder();
+          let buffer = "";
+          while (true) {
+            const { value, done } = await reader.read();
+            buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+            if (done) break;
+          }
+          notify("success", `Model ${name} pulled successfully!`);
+          await loadModels();
+          renderCatalogView();
+        } catch (e) {
+          notify("error", `Pull failed: ${e.message}`);
+        } finally {
+          pullBtn.disabled = false;
+          pullBtn.textContent = "⬇ Pull Model";
+        }
+      };
+    }
+  };
+
+  await renderCatalogView();
+}
+
+document.getElementById("open-model-catalog")?.addEventListener("click", openModelCatalogModal);
+
+document.getElementById("pull-model").onclick = openModelCatalogModal;
 
 document.getElementById("model-search").oninput = (() => { let timer; return () => { clearTimeout(timer); timer = setTimeout(loadModels, 180); }; })();
 document.getElementById("conversation-search").oninput = (() => { let timer; return () => { clearTimeout(timer); timer = setTimeout(loadConversations, 180); }; })();

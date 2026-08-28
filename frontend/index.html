@@ -19,12 +19,35 @@
       <button id="toggle-theme" class="icon-button" title="Toggle theme" aria-label="Toggle theme">🌓</button>
       <button id="open-about" class="icon-button" title="About Mini-O" aria-label="About Mini-O">?</button>
     </div>
-    <div class="model-picker">
-      <label for="model-select">Model</label>
-      <input id="model-search" class="model-search" placeholder="Filter models…" aria-label="Filter models" />
+    <div class="model-picker" id="model-picker-container">
+      <div class="model-picker-header">
+        <label for="model-select">Model Selection</label>
+        <button id="open-model-catalog" class="icon-button-small" type="button" title="Browse rich model catalog and filters" aria-label="Browse rich model catalog">📚 Catalog</button>
+      </div>
+
+      <input id="model-search" class="model-search" placeholder="Search models, family, tasks…" aria-label="Filter models" />
+
+      <!-- Location Filter: All / Cloud / Local -->
+      <div class="model-filter-row" role="group" aria-label="Filter by hosting location">
+        <button type="button" class="filter-chip active" data-filter-group="location" data-filter-value="all" id="filter-loc-all">All</button>
+        <button type="button" class="filter-chip" data-filter-group="location" data-filter-value="cloud" id="filter-loc-cloud" title="Cloud API models">☁️ Cloud</button>
+        <button type="button" class="filter-chip" data-filter-group="location" data-filter-value="local" id="filter-loc-local" title="Local open-weight models (Ollama)">💻 Local</button>
+      </div>
+
+      <!-- Tier Filter: All / Free / Paid -->
+      <div class="model-filter-row" role="group" aria-label="Filter by pricing tier">
+        <button type="button" class="filter-chip active" data-filter-group="tier" data-filter-value="all" id="filter-tier-all">All Tiers</button>
+        <button type="button" class="filter-chip" data-filter-group="tier" data-filter-value="free" id="filter-tier-free" title="Free tier & open-weights">🟢 Free</button>
+        <button type="button" class="filter-chip" data-filter-group="tier" data-filter-value="paid" id="filter-tier-paid" title="Paid API models">💳 Paid</button>
+      </div>
+
       <select id="model-select" aria-describedby="model-help"></select>
-      <button id="favorite-model" class="secondary" type="button" title="Favorite model" aria-label="Favorite model">☆ Favorite</button>
-      <button id="refresh-models" class="icon-button" title="Refresh models" aria-label="Refresh models">↻</button><button id="model-details" class="icon-button" title="Model details" aria-label="Model details">ⓘ</button>
+
+      <div class="model-picker-actions">
+        <button id="favorite-model" class="secondary" type="button" title="Favorite model" aria-label="Favorite model">☆ Favorite</button>
+        <button id="refresh-models" class="icon-button" title="Refresh models" aria-label="Refresh models">↻</button>
+        <button id="model-details" class="icon-button" title="Model details" aria-label="Model details">ⓘ</button>
+      </div>
     </div>
     <p id="model-help" class="field-help">Choose the model used for new messages.</p>
     <h2 class="sr-only">Saved conversations</h2>
