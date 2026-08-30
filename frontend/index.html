@@ -18,6 +18,7 @@
       <button id="new-chat" class="primary">+ New chat</button>
       <button id="toggle-theme" class="icon-button" title="Toggle theme" aria-label="Toggle theme">🌓</button>
       <button id="open-about" class="icon-button" title="About Mini-O" aria-label="About Mini-O">?</button>
+      <button id="collapse-sidebar" class="icon-button" title="Collapse sidebar (Ctrl+B)" aria-label="Collapse sidebar">◀</button>
     </div>
     <div class="model-picker" id="model-picker-container">
       <div class="model-picker-header">
@@ -60,15 +61,17 @@
 
   <main class="main" id="main-content">
     <header class="main-header">
-      <button id="toggle-sidebar" class="icon-button mobile-only" title="Open conversations" aria-label="Open conversations">☰</button>
-      <div class="header-info">
-        <span id="current-model" class="badge">No model</span>
-        <span id="status" class="status-dot" role="status" aria-label="Checking connection"></span>
-        <span id="status-text" class="status-text">Checking connection…</span>
+      <div class="header-left">
+        <button id="toggle-sidebar" class="icon-button" title="Toggle sidebar (Ctrl+B)" aria-label="Toggle sidebar">☰</button>
+        <div class="header-info">
+          <span id="current-model" class="badge">No model</span>
+          <span id="status" class="status-dot" role="status" aria-label="Checking connection"></span>
+          <span id="status-text" class="status-text">Checking connection…</span>
+        </div>
       </div>
       <div class="header-actions">
         <label class="toggle"><input type="checkbox" id="enable-tools" /> <span>Tools</span></label>
-        <button id="notifications-button" class="icon-button" title="Notification history" aria-label="Notification history">♢</button><button id="research-mode" class="icon-button" title="Research mode" aria-label="Research mode">⌕</button><button id="generation-settings" class="icon-button" title="Generation settings" aria-label="Generation settings">⚙</button><button id="toggle-right-panel" class="icon-button" title="Toggle workspace" aria-label="Toggle workspace">☷</button>
+        <button id="notifications-button" class="icon-button" title="Notification history" aria-label="Notification history">♢</button><button id="research-mode" class="icon-button" title="Research mode" aria-label="Research mode">⌕</button><button id="generation-settings" class="icon-button" title="Generation settings" aria-label="Generation settings">⚙</button><button id="toggle-fullscreen" class="icon-button" title="Full screen terminal (Alt+F)" aria-label="Toggle full screen terminal">⛶</button><button id="toggle-right-panel" class="icon-button" title="Toggle workspace (Ctrl+J)" aria-label="Toggle workspace">☷</button>
       </div>
     </header>
 

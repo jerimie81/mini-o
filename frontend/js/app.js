@@ -388,12 +388,66 @@ function showCustomModal(content) {
 }
 function closeModal() { document.getElementById("modal").classList.add("hidden"); }
 
+let lastPanelStateBeforeFullscreen = null;
+
+function updateFullscreenButtonState() {
+  const sidebarCollapsed = sidebar.classList.contains("collapsed");
+  const rightPanelCollapsed = rightPanel.classList.contains("collapsed");
+  const isFullscreen = sidebarCollapsed && rightPanelCollapsed;
+  const fsBtn = document.getElementById("toggle-fullscreen");
+  if (fsBtn) {
+    fsBtn.classList.toggle("active", isFullscreen);
+    fsBtn.title = isFullscreen ? "Exit full screen terminal (Alt+F)" : "Full screen terminal (Alt+F)";
+    fsBtn.setAttribute("aria-pressed", String(isFullscreen));
+  }
+}
+
 function setPanel(panel, open) {
   panel.classList.toggle("collapsed", !open);
+  const appEl = document.getElementById("app");
+  if (panel === sidebar) {
+    appEl?.classList.toggle("sidebar-collapsed", !open);
+    const toggleBtn = document.getElementById("toggle-sidebar");
+    if (toggleBtn) {
+      toggleBtn.setAttribute("aria-expanded", String(open));
+      toggleBtn.title = open ? "Collapse sidebar (Ctrl+B)" : "Expand sidebar (Ctrl+B)";
+    }
+    storage.set("sidebar-open", String(open));
+  }
+  if (panel === rightPanel) {
+    appEl?.classList.toggle("right-panel-collapsed", !open);
+    const toggleBtn = document.getElementById("toggle-right-panel");
+    if (toggleBtn) {
+      toggleBtn.setAttribute("aria-expanded", String(open));
+      toggleBtn.title = open ? "Collapse workspace (Ctrl+J)" : "Expand workspace (Ctrl+J)";
+    }
+    storage.set("workspace-open", String(open));
+  }
   const isMobile = window.matchMedia("(max-width: 1100px)").matches;
   scrim.classList.toggle("hidden", !isMobile || (sidebar.classList.contains("collapsed") && rightPanel.classList.contains("collapsed")));
-  if (panel === rightPanel) storage.set("workspace-open", String(open));
-  if (panel === sidebar) storage.set("sidebar-open", String(open));
+  updateFullscreenButtonState();
+}
+
+function toggleFullscreenTerminal() {
+  const sidebarCollapsed = sidebar.classList.contains("collapsed");
+  const rightPanelCollapsed = rightPanel.classList.contains("collapsed");
+  const isFullscreen = sidebarCollapsed && rightPanelCollapsed;
+
+  if (isFullscreen) {
+    const prevSidebar = lastPanelStateBeforeFullscreen?.sidebar ?? true;
+    const prevRight = lastPanelStateBeforeFullscreen?.rightPanel ?? true;
+    setPanel(sidebar, prevSidebar);
+    setPanel(rightPanel, prevRight);
+    notify("success", "Exited full screen mode");
+  } else {
+    lastPanelStateBeforeFullscreen = {
+      sidebar: !sidebarCollapsed,
+      rightPanel: !rightPanelCollapsed,
+    };
+    setPanel(sidebar, false);
+    setPanel(rightPanel, false);
+    notify("success", "Full screen terminal activated");
+  }
 }
 
 const configure = {
@@ -1398,6 +1452,8 @@ document.getElementById("open-files").onclick = () => { setPanel(rightPanel, tru
 document.getElementById("toggle-right-panel").onclick = () => setPanel(rightPanel, rightPanel.classList.contains("collapsed"));
 document.getElementById("close-right-panel").onclick = () => setPanel(rightPanel, false);
 document.getElementById("toggle-sidebar").onclick = () => setPanel(sidebar, sidebar.classList.contains("collapsed"));
+document.getElementById("collapse-sidebar")?.addEventListener("click", () => setPanel(sidebar, false));
+document.getElementById("toggle-fullscreen")?.addEventListener("click", toggleFullscreenTerminal);
 scrim.onclick = () => { setPanel(sidebar, false); setPanel(rightPanel, false); };
 
 document.getElementById("attach").onclick = async () => {
@@ -1505,20 +1561,44 @@ input.addEventListener("input", () => {
 input.addEventListener("input", saveDraft);
 
 document.addEventListener("keydown", event => {
+  // Shortcut: Alt+F to toggle full-screen terminal
+  if (event.altKey && (event.key === "f" || event.key === "F" || event.key === "ƒ")) {
+    event.preventDefault();
+    toggleFullscreenTerminal();
+    return;
+  }
+  // Shortcut: Ctrl+B or Cmd+B to toggle sidebar
+  if ((event.ctrlKey || event.metaKey) && (event.key === "b" || event.key === "B")) {
+    event.preventDefault();
+    setPanel(sidebar, sidebar.classList.contains("collapsed"));
+    return;
+  }
+  // Shortcut: Ctrl+J or Cmd+J to toggle right workspace panel
+  if ((event.ctrlKey || event.metaKey) && (event.key === "j" || event.key === "J")) {
+    event.preventDefault();
+    setPanel(rightPanel, rightPanel.classList.contains("collapsed"));
+    return;
+  }
+
   if (event.key === "Escape") {
     if (!document.getElementById("modal").classList.contains("hidden")) { closeModal(); return; }
-  } else return;
-  const editor = document.getElementById("file-editor");
-  if (!editor.classList.contains("hidden")) { editor.classList.add("hidden"); return; }
-  setPanel(sidebar, false); setPanel(rightPanel, false);
+    const editor = document.getElementById("file-editor");
+    if (!editor.classList.contains("hidden")) { editor.classList.add("hidden"); return; }
+    const isMobile = window.matchMedia("(max-width: 1100px)").matches;
+    if (isMobile) {
+      setPanel(sidebar, false);
+      setPanel(rightPanel, false);
+    }
+  }
 });
 
 applyAppearance();
-document.querySelector(".shortcut-hint").textContent = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘↵ to send · ⇧↵ newline" : "Enter to send · Shift+Enter newline";
+document.querySelector(".shortcut-hint").textContent = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘↵ send · ⇧↵ newline · ⌥F fullscreen" : "Enter to send · Shift+Enter newline · Alt+F fullscreen";
 const savedTab = storage.get("tab", "files");
 selectTab(savedTab);
 setPanel(sidebar, storage.get("sidebar-open", "true") !== "false");
 setPanel(rightPanel, storage.get("workspace-open", "true") !== "false");
+updateFullscreenButtonState();
 loadModels(); loadConversations(); files.load(); tools.render(); restoreDraft();
 
 api.recovery().then(records => {
