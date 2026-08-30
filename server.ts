@@ -1,17 +1,14 @@
-import express, { Request, Response, NextFunction } from 'express';
+import express from 'express';
+import type { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
-import { fileURLToPath } from 'url';
 import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
-import { GoogleGenAI, Type, Modality, FunctionDeclaration } from '@google/genai';
+import { GoogleGenAI, Type, Modality } from '@google/genai';
+import type { FunctionDeclaration } from '@google/genai';
 
-const __currentDirname = typeof __dirname !== 'undefined'
-  ? __dirname
-  : (typeof import.meta !== 'undefined' && (import.meta as any)?.url
-      ? path.dirname(fileURLToPath((import.meta as any).url))
-      : process.cwd());
+const __currentDirname = typeof __dirname !== 'undefined' ? __dirname : process.cwd();
 
 const execAsync = promisify(exec);
 
