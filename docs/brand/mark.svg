@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Hex "chip" outline: circuit-board vernacular for a systems/Android-tooling app -->
+  <polygon points="256,86 400,171 400,341 256,426 112,341 112,171"
+           fill="none" stroke="#5d83e6" stroke-width="26" stroke-linejoin="round"/>
+  <!-- Pin-1 indicator notch, like an IC package -->
+  <circle cx="256" cy="86" r="20" fill="#83a7ff"/>
+  <!-- Center ring: the "O" in Mini-O, doubling as the workspace boundary -->
+  <circle cx="256" cy="256" r="76" fill="none" stroke="#83a7ff" stroke-width="32"/>
+</svg>

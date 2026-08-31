@@ -682,6 +682,291 @@ body.resizing-panels iframe, body.resizing-panels textarea { pointer-events: non
   color: var(--text);
 }
 
+.btn-menu {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.btn-menu:hover {
+  background: var(--surface-hover);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.btn-menu-icon { font-size: 14px; line-height: 1; }
+.btn-menu-label { letter-spacing: 0.02em; }
+
+.panel-title-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.panel-subtitle {
+  font: 11px var(--mono);
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.file-explorer-container {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+
+/* Workspace Menu Modal Styles */
+.modal-card-wide {
+  width: min(880px, 96vw);
+  max-height: min(88vh, 820px);
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+.menu-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-raised);
+}
+.menu-modal-title h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+}
+.menu-modal-title p {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.menu-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  overflow-x: auto;
+}
+.menu-tab-btn {
+  padding: 7px 12px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.menu-tab-btn:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+.menu-tab-btn.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.menu-modal-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 18px 20px;
+  min-height: 0;
+}
+.menu-tab-pane {
+  display: none;
+  flex-direction: column;
+  gap: 16px;
+}
+.menu-tab-pane.active {
+  display: flex;
+}
+
+/* Secrets & API Keys Styling */
+.secrets-intro {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+.secrets-form-card {
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.secrets-form-card h4 {
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+.secrets-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+@media (max-width: 640px) {
+  .secrets-grid-2 { grid-template-columns: 1fr; }
+}
+.secrets-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.secrets-field label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.secrets-field input, .secrets-field select, .secrets-field textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  font-size: 13px;
+}
+.secret-input-wrap {
+  display: flex;
+  position: relative;
+  width: 100%;
+}
+.secret-input-wrap input {
+  padding-right: 40px;
+  font-family: var(--mono);
+}
+.btn-toggle-mask {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px 6px;
+  font-size: 12px;
+}
+.btn-toggle-mask:hover { color: var(--text); }
+.secrets-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 8px;
+}
+.secrets-list-header h4 {
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+.secrets-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.secret-card {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.secret-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.secret-identity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.secret-name {
+  font-weight: 600;
+  font-size: 13.5px;
+  color: var(--text);
+}
+.secret-env-key {
+  font: 11px var(--mono);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 2px 6px;
+  color: var(--accent);
+}
+.secret-masked {
+  font: 12px var(--mono);
+  color: var(--text-muted);
+  letter-spacing: 0.05em;
+  background: var(--bg);
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  display: inline-block;
+  border: 1px solid var(--border);
+}
+.secret-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  flex-wrap: wrap;
+}
+.secret-test-result {
+  font-size: 11.5px;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  line-height: 1.4;
+}
+.secret-test-result.success {
+  background: rgba(86, 217, 138, 0.12);
+  border: 1px solid rgba(86, 217, 138, 0.35);
+  color: var(--success);
+}
+.secret-test-result.error {
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  color: #f87171;
+}
+.secret-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+}
+.secret-actions button {
+  width: auto;
+  font-size: 11.5px;
+  padding: 4px 10px;
+}
+
 .modal { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; background: rgba(0, 0, 0, .6); padding: 20px; }
 .modal-card { width: min(560px, 100%); padding: 20px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); box-shadow: var(--shadow); }
 .modal-card h3 { margin: 0 0 8px; }

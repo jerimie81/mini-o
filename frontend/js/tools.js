@@ -1,9 +1,12 @@
 import { api } from "./api.js";
 class ToolPanel {
   async render() {
-    const list = document.getElementById("tool-list");
+    const list = document.getElementById("tool-list") || document.getElementById("menu-tool-list");
+    if (!list) return;
     try {
-      const tools = await api.tools(); list.innerHTML = "";
+      const tools = await api.tools();
+      if (!list) return;
+      list.innerHTML = "";
       if (!tools.length) list.innerHTML = "<li class='empty-state'>No tools are registered.</li>";
       const groups = new Map();
       tools.forEach(tool => { const group = groups.get(tool.category || "general") || []; group.push(tool); groups.set(tool.category || "general", group); });
@@ -25,7 +28,7 @@ class ToolPanel {
         list.appendChild(li);
         });
       });
-    } catch (error) { list.textContent = error.message; }
+    } catch (error) { if (list) list.textContent = error.message; }
   }
 }
 export { ToolPanel };

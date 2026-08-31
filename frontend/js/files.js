@@ -126,6 +126,11 @@ class FilePanel {
 
   renderCurrent() {
     const path = this.currentPath;
+    const pathSubtitle = document.getElementById("file-explorer-path");
+    if (pathSubtitle) {
+      pathSubtitle.textContent = path === "." ? "Workspace Root" : path;
+      pathSubtitle.title = path === "." ? "Workspace Root" : path;
+    }
     const filter = (document.getElementById("file-search")?.value || "").toLowerCase();
     try {
       this.tree.innerHTML = "";
@@ -179,17 +184,20 @@ class FilePanel {
     try {
       const result = await api.read(path);
       const metadata = await api.fileMetadata(path).catch(() => ({}));
-      this.editorPath.textContent = path;
-      this.editorText.value = result.content;
+      if (this.editorPath) this.editorPath.textContent = path;
+      if (this.editorText) this.editorText.value = result.content;
       this.modified = metadata.modified || result.modified || null;
-      document.getElementById("editor-language").textContent = metadata.language || "text";
-      document.getElementById("editor-encoding").textContent = `${metadata.encoding || "utf-8"} · ${metadata.line_ending || "lf"}`;
-      document.getElementById("editor-readonly").checked = Boolean(metadata.read_only);
-      this.editorText.readOnly = Boolean(metadata.read_only);
+      const langEl = document.getElementById("editor-language");
+      if (langEl) langEl.textContent = metadata.language || "text";
+      const encEl = document.getElementById("editor-encoding");
+      if (encEl) encEl.textContent = `${metadata.encoding || "utf-8"} · ${metadata.line_ending || "lf"}`;
+      const roEl = document.getElementById("editor-readonly");
+      if (roEl) roEl.checked = Boolean(metadata.read_only);
+      if (this.editorText) this.editorText.readOnly = Boolean(metadata.read_only);
       this.undoStack = [result.content];
       this.redoStack = [];
       this.setDirty(false);
-      this.editor.classList.remove("hidden");
+      if (this.editor) this.editor.classList.remove("hidden");
     } catch (error) {
       const classified = classifyError(error);
       document.dispatchEvent(new CustomEvent("mini-o:notice", {

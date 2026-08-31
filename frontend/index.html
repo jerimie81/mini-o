@@ -4,6 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>Mini-O — local AI workspace</title>
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
 <link rel="stylesheet" href="/static/css/styles.css?v=20260813-2" />
 </head>
 <body>
@@ -55,7 +56,9 @@
     <div class="conversation-tools"><input id="conversation-search" placeholder="Search chats…" aria-label="Search conversations" /><button id="conversation-sort" class="icon-button" title="Toggle archived chats" aria-label="Toggle archived chats">☷</button></div>
     <ul id="conversation-list" class="conversation-list"></ul>
     <div class="sidebar-footer">
-      <button id="pull-model" class="secondary">＋ Pull model</button><button id="open-files" class="secondary">📁 Workspace</button>
+      <button id="pull-model" class="secondary">＋ Pull model</button>
+      <button id="open-menu-sidebar" class="secondary">☰ Menu</button>
+      <button id="open-files" class="secondary">📁 Files</button>
     </div>
   </aside>
 
@@ -63,6 +66,10 @@
     <header class="main-header">
       <div class="header-left">
         <button id="toggle-sidebar" class="icon-button" title="Toggle sidebar (Ctrl+B)" aria-label="Toggle sidebar">☰</button>
+        <button id="open-menu" class="btn-menu" title="Workspace Menu & Configuration (Alt+M)" aria-label="Open Workspace Menu">
+          <span class="btn-menu-icon">☰</span>
+          <span class="btn-menu-label">Menu</span>
+        </button>
         <div class="header-info">
           <span id="current-model" class="badge">No model</span>
           <span id="status" class="status-dot" role="status" aria-label="Checking connection"></span>
@@ -71,13 +78,19 @@
       </div>
       <div class="header-actions">
         <label class="toggle"><input type="checkbox" id="enable-tools" /> <span>Tools</span></label>
-        <button id="notifications-button" class="icon-button" title="Notification history" aria-label="Notification history">♢</button><button id="research-mode" class="icon-button" title="Research mode" aria-label="Research mode">⌕</button><button id="generation-settings" class="icon-button" title="Generation settings" aria-label="Generation settings">⚙</button><button id="toggle-fullscreen" class="icon-button" title="Full screen terminal (Alt+F)" aria-label="Toggle full screen terminal">⛶</button><button id="toggle-right-panel" class="icon-button" title="Toggle workspace (Ctrl+J)" aria-label="Toggle workspace">☷</button>
+        <button id="notifications-button" class="icon-button" title="Notification history" aria-label="Notification history">♢</button><button id="research-mode" class="icon-button" title="Research mode" aria-label="Research mode">⌕</button><button id="generation-settings" class="icon-button" title="Generation settings" aria-label="Generation settings">⚙</button><button id="toggle-fullscreen" class="icon-button" title="Full screen terminal (Alt+F)" aria-label="Toggle full screen terminal">⛶</button><button id="toggle-right-panel" class="icon-button" title="Toggle file explorer (Ctrl+J)" aria-label="Toggle file explorer">📁</button>
       </div>
     </header>
 
     <section id="messages" class="messages" aria-live="polite" aria-label="Conversation" aria-busy="false">
       <div id="welcome" class="welcome-state">
-        <div class="welcome-mark" aria-hidden="true">✦</div>
+        <div class="welcome-mark" aria-hidden="true">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="64" height="64" style="margin: 0 auto; display: block;">
+            <polygon points="256,86 400,171 400,341 256,426 112,341 112,171" fill="none" stroke="#5d83e6" stroke-width="26" stroke-linejoin="round"/>
+            <circle cx="256" cy="86" r="20" fill="#83a7ff"/>
+            <circle cx="256" cy="256" r="76" fill="none" stroke="#83a7ff" stroke-width="32"/>
+          </svg>
+        </div>
         <h1>Local AI, in your workspace.</h1>
         <p>Start a conversation with your selected model. Your chats and files stay on this machine.</p>
         <div class="welcome-cards" aria-label="Getting started">
@@ -101,67 +114,35 @@
     </footer>
   </main>
 
-  <aside class="right-panel" id="right-panel" aria-label="Workspace tools">
-    <button class="resize-handle resize-handle-workspace" type="button" aria-label="Resize workspace panel" aria-orientation="vertical" aria-valuemin="280" aria-valuemax="640" aria-valuenow="360"></button>
-    <div class="panel-heading"><h2>Workspace</h2><button id="close-right-panel" class="icon-button" title="Close workspace" aria-label="Close workspace">×</button></div>
-    <div class="tabs" role="tablist" aria-label="Workspace panels">
-      <button data-tab="files" class="tab active" role="tab" aria-selected="true" aria-controls="tab-files">Files</button>
-      <button data-tab="tools" class="tab" role="tab" aria-selected="false" aria-controls="tab-tools">Tools</button>
-      <button data-tab="configure" class="tab" role="tab" aria-selected="false" aria-controls="tab-configure">Configure</button>
-      <button data-tab="integrations" class="tab" role="tab" aria-selected="false" aria-controls="tab-integrations">Integrations</button>
+  <aside class="right-panel" id="right-panel" aria-label="File Explorer">
+    <button class="resize-handle resize-handle-workspace" type="button" aria-label="Resize file explorer panel" aria-orientation="vertical" aria-valuemin="280" aria-valuemax="640" aria-valuenow="360"></button>
+    <div class="panel-heading">
+      <div class="panel-title-wrap">
+        <h2>File Explorer</h2>
+        <span class="panel-subtitle" id="file-explorer-path">Workspace Root</span>
+      </div>
+      <button id="close-right-panel" class="icon-button" title="Close file explorer" aria-label="Close file explorer">×</button>
     </div>
-    <div class="tab-panels">
-      <div id="tab-files" class="tab-panel active" role="tabpanel" aria-label="Files">
-        <div class="file-toolbar">
-          <button id="file-back" class="secondary" title="Go to the parent folder" aria-label="Go to the parent folder">← Back</button>
-          <input id="file-search" placeholder="Filter names or content…" aria-label="Filter workspace files" />
-          <button id="file-search-content" class="icon-button" title="Search file contents" aria-label="Search file contents">⌕</button>
-          <select id="file-sort" aria-label="Sort files"><option value="name">Name</option><option value="modified">Modified</option><option value="size">Size</option></select>
-          <button id="file-hidden" class="icon-button" title="Show hidden files" aria-label="Toggle hidden files">◌</button>
-          <button id="refresh-files" class="icon-button" title="Refresh files" aria-label="Refresh files">↻</button>
-          <button id="new-file" class="icon-button" title="New file" aria-label="New file">+</button>
+    <div class="file-explorer-container">
+      <div class="file-toolbar">
+        <button id="file-back" class="secondary" title="Go to the parent folder" aria-label="Go to the parent folder">← Back</button>
+        <input id="file-search" placeholder="Filter files…" aria-label="Filter workspace files" />
+        <button id="file-search-content" class="icon-button" title="Search file contents" aria-label="Search file contents">⌕</button>
+        <select id="file-sort" aria-label="Sort files"><option value="name">Name</option><option value="modified">Modified</option><option value="size">Size</option></select>
+        <button id="file-hidden" class="icon-button" title="Show hidden files" aria-label="Toggle hidden files">◌</button>
+        <button id="refresh-files" class="icon-button" title="Refresh files" aria-label="Refresh files">↻</button>
+        <button id="new-file" class="icon-button" title="New file" aria-label="New file">+</button>
+      </div>
+      <div id="file-tree" class="file-tree"></div>
+      <div id="file-editor" class="file-editor hidden">
+        <div class="editor-header">
+          <span id="editor-path"></span><span id="editor-status" class="editor-status">Saved</span>
+          <button id="editor-save" class="primary">Save</button>
+          <button id="editor-undo" class="secondary">Undo</button><button id="editor-redo" class="secondary">Redo</button><button id="editor-find" class="secondary">Find/replace</button><button id="editor-goto" class="secondary">Go to line</button>
+          <button id="editor-close" class="icon-button" title="Close editor" aria-label="Close editor">×</button>
         </div>
-        <div id="file-tree" class="file-tree"></div>
-        <div id="file-editor" class="file-editor hidden">
-          <div class="editor-header">
-            <span id="editor-path"></span><span id="editor-status" class="editor-status">Saved</span>
-            <button id="editor-save" class="primary">Save</button>
-            <button id="editor-undo" class="secondary">Undo</button><button id="editor-redo" class="secondary">Redo</button><button id="editor-find" class="secondary">Find/replace</button><button id="editor-goto" class="secondary">Go to line</button>
-            <button id="editor-close" class="icon-button" title="Close editor" aria-label="Close editor">×</button>
-          </div>
-          <div class="editor-options"><label><input id="editor-readonly" type="checkbox" /> Read-only</label><span id="editor-language">text</span><span id="editor-encoding"></span></div>
-          <textarea id="editor-text" spellcheck="false"></textarea>
-        </div>
-      </div>
-      <div id="tab-tools" class="tab-panel" role="tabpanel" aria-label="Tools">
-        <ul id="tool-list" class="tool-list"></ul>
-      </div>
-      <div id="tab-configure" class="tab-panel" role="tabpanel" aria-label="Configure">
-        <section class="config-section" aria-labelledby="file-access-heading">
-          <h3 id="file-access-heading">File access</h3>
-          <p class="field-help">Choose the primary workspace and the directories Mini-O may access. The workspace is always included.</p>
-          <p class="config-file-path"><span>Active policy file</span> <code id="config-file-path">mini-o.config.json</code></p>
-          <label>Primary workspace <input id="workspace-dir" placeholder="/home/me/project" /></label>
-          <label>Allowed directories <textarea id="allowed-roots" rows="3" placeholder="One absolute directory per line"></textarea></label>
-          <div class="config-actions"><button id="workspace-config-save" class="primary">Save all policy</button><button id="workspace-config-reload" class="secondary">Reload</button></div>
-          <p id="workspace-config-status" class="field-help" role="status"></p>
-        </section>
-        <section class="config-section" aria-labelledby="tool-access-heading">
-          <h3 id="tool-access-heading">Tool permissions</h3>
-          <p class="field-help">These server-side modes are stored in the policy file. Allow is persistent; confirm asks before side effects; deny blocks the tool.</p>
-          <div id="config-tool-list" class="config-tool-list"></div>
-        </section>
-        <div class="file-toolbar"><button id="agent-new">New AGENT.md</button><button id="agent-template">Template</button><button id="agent-save" class="primary">Save</button></div>
-        <label class="toggle"><input type="checkbox" id="confirm-tools" /> Allow tools requiring confirmation</label>
-        <div id="agent-list" class="file-tree"></div><div id="agent-preview" class="preview"></div>
-        <input id="agent-path" placeholder="AGENT.md or folder/AGENT.md" />
-        <textarea id="agent-text" placeholder="Agent instructions for this workspace"></textarea>
-      </div>
-      <div id="tab-integrations" class="tab-panel" role="tabpanel" aria-label="Integrations">
-        <div class="file-toolbar"><button id="refresh-integrations" class="secondary">Refresh catalog</button></div>
-        <p class="field-help integration-intro">Connect Mini-O to editors and platforms through reviewed, permissioned adapters. MCP is the planned interoperability layer; planned entries are design targets, not installed integrations.</p>
-        <section class="integration-section" aria-labelledby="plugin-heading"><h3 id="plugin-heading">Local plugins</h3><div id="plugin-list" class="integration-list"></div></section>
-        <section class="integration-section" aria-labelledby="integration-heading"><h3 id="integration-heading">IDE and platform adapters</h3><div id="integration-list" class="integration-list"></div></section>
+        <div class="editor-options"><label><input id="editor-readonly" type="checkbox" /> Read-only</label><span id="editor-language">text</span><span id="editor-encoding"></span></div>
+        <textarea id="editor-text" spellcheck="false"></textarea>
       </div>
     </div>
   </aside>

@@ -450,89 +450,709 @@ function toggleFullscreenTerminal() {
   }
 }
 
-const configure = {
-  toolPolicies: {},
-  async load() {
-    const list = document.getElementById("agent-list");
+const providerPresets = {
+  github: { name: "GitHub Personal Token", key: "GITHUB_TOKEN", placeholder: "ghp_... or github_pat_...", instanceUrl: false, repoPlaceholder: "https://github.com/org/repo (or Global)" },
+  gitlab: { name: "GitLab Personal Access Token", key: "GITLAB_TOKEN", placeholder: "glpat-...", instanceUrl: true, repoPlaceholder: "https://gitlab.com/org/project (or Global)" },
+  bitbucket: { name: "Bitbucket App Password", key: "BITBUCKET_TOKEN", placeholder: "App password or token...", instanceUrl: false, repoPlaceholder: "https://bitbucket.org/workspace/repo" },
+  git: { name: "Custom Git Repository Token", key: "GIT_TOKEN", placeholder: "Token or password...", instanceUrl: true, repoPlaceholder: "https://git.example.com/org/repo" },
+  gemini: { name: "Google Gemini API Key", key: "GEMINI_API_KEY", placeholder: "AIzaSy...", instanceUrl: false, repoPlaceholder: "Global (Google AI Studio / Gemini API)" },
+  anthropic: { name: "Anthropic Claude API Key", key: "ANTHROPIC_API_KEY", placeholder: "sk-ant-...", instanceUrl: false, repoPlaceholder: "Global (Anthropic Claude API)" },
+  openai: { name: "OpenAI API Key", key: "OPENAI_API_KEY", placeholder: "sk-...", instanceUrl: false, repoPlaceholder: "Global (OpenAI API)" },
+  huggingface: { name: "Hugging Face Access Token", key: "HF_TOKEN", placeholder: "hf_...", instanceUrl: false, repoPlaceholder: "Global (Hugging Face Hub)" },
+  custom: { name: "Custom Variable / Secret", key: "", placeholder: "Secret value...", instanceUrl: false, repoPlaceholder: "Target Scope / Global" },
+};
+
+const workspaceMenu = {
+  activeTab: "secrets",
+
+  async open(tab = "secrets") {
+    this.activeTab = tab;
+    this.renderModal();
+    await this.loadTab(tab);
+  },
+
+  renderModal() {
+    const html = `
+      <div class="modal-card modal-card-wide">
+        <div class="menu-modal-header">
+          <div class="menu-modal-title">
+            <h3>Workspace Menu &amp; Configuration</h3>
+            <p>Manage repository secrets, tool policies, file sandbox, and IDE integrations</p>
+          </div>
+          <button class="icon-button modal-close" title="Close menu" aria-label="Close menu">×</button>
+        </div>
+        <div class="menu-tabs" role="tablist">
+          <button class="menu-tab-btn ${this.activeTab === "secrets" ? "active" : ""}" data-menu-tab="secrets">🔑 Secrets &amp; API Keys</button>
+          <button class="menu-tab-btn ${this.activeTab === "workspace" ? "active" : ""}" data-menu-tab="workspace">📁 File &amp; Sandbox Config</button>
+          <button class="menu-tab-btn ${this.activeTab === "tools" ? "active" : ""}" data-menu-tab="tools">🛠️ Tool Policies</button>
+          <button class="menu-tab-btn ${this.activeTab === "integrations" ? "active" : ""}" data-menu-tab="integrations">🔌 Integrations &amp; MCP</button>
+          <button class="menu-tab-btn ${this.activeTab === "settings" ? "active" : ""}" data-menu-tab="settings">⚙️ Settings &amp; Diagnostics</button>
+        </div>
+        <div class="menu-modal-body">
+          <!-- Pane: Secrets -->
+          <div id="pane-secrets" class="menu-tab-pane ${this.activeTab === "secrets" ? "active" : ""}">
+            <p class="secrets-intro">
+              Add API keys and tokens for GitHub, GitLab, Bitbucket, custom Git repos, or AI providers (Google Gemini, OpenAI, Claude). Secrets are stored on this machine and securely loaded for repository and tool operations.
+            </p>
+
+            <section class="secrets-form-card">
+              <h4 id="secret-form-title">Add New Secret or Repository Key</h4>
+              <div class="secrets-grid-2">
+                <div class="secrets-field">
+                  <label for="secret-provider">Service / Provider</label>
+                  <select id="secret-provider">
+                    <option value="github">GitHub (GITHUB_TOKEN / Personal Access Token)</option>
+                    <option value="gitlab">GitLab (GITLAB_TOKEN / Personal Access Token)</option>
+                    <option value="bitbucket">Bitbucket (BITBUCKET_TOKEN / App Password)</option>
+                    <option value="git">Custom Git Repository (GIT_TOKEN)</option>
+                    <option value="gemini">Google Gemini (GEMINI_API_KEY)</option>
+                    <option value="anthropic">Anthropic Claude (ANTHROPIC_API_KEY)</option>
+                    <option value="openai">OpenAI (OPENAI_API_KEY)</option>
+                    <option value="huggingface">Hugging Face (HF_TOKEN)</option>
+                    <option value="custom">Custom Secret / Variable</option>
+                  </select>
+                </div>
+                <div class="secrets-field">
+                  <label for="secret-name">Friendly Name</label>
+                  <input id="secret-name" placeholder="e.g. GitHub Personal Token" value="GitHub Personal Token" />
+                </div>
+              </div>
+
+              <div class="secrets-grid-2">
+                <div class="secrets-field">
+                  <label for="secret-key">Environment Variable Key</label>
+                  <input id="secret-key" placeholder="e.g. GITHUB_TOKEN" value="GITHUB_TOKEN" />
+                </div>
+                <div class="secrets-field">
+                  <label for="secret-repo">Target Repository / Scope</label>
+                  <input id="secret-repo" placeholder="e.g. https://github.com/org/repo (or Global)" />
+                </div>
+              </div>
+
+              <div class="secrets-field" id="secret-instance-url-field" style="display: none;">
+                <label for="secret-instance-url">Instance / API Base URL (for self-hosted Git)</label>
+                <input id="secret-instance-url" placeholder="https://gitlab.example.com" />
+              </div>
+
+              <div class="secrets-field">
+                <label for="secret-value">Secret / Token Value</label>
+                <div class="secret-input-wrap">
+                  <input id="secret-value" type="password" placeholder="Paste your API key, PAT token, or secret value…" autocomplete="off" />
+                  <button type="button" class="btn-toggle-mask" id="btn-toggle-secret-visibility" title="Toggle visibility">👁️</button>
+                </div>
+              </div>
+
+              <div class="secrets-field">
+                <label for="secret-description">Description / Notes (Optional)</label>
+                <input id="secret-description" placeholder="e.g. Fine-grained PAT with repo and workflow read/write permissions" />
+              </div>
+
+              <div class="modal-actions" style="margin-top: 4px; justify-content: flex-start;">
+                <button type="button" class="primary" id="btn-save-secret">Save Secret</button>
+                <button type="button" class="secondary" id="btn-reset-secret-form" style="width: auto;">Clear Form</button>
+              </div>
+            </section>
+
+            <div class="secrets-list-header">
+              <h4>Configured Secrets &amp; Repository Keys (<span id="secrets-count">0</span>)</h4>
+              <button type="button" class="secondary" id="btn-refresh-secrets" style="width: auto; padding: 4px 10px; font-size: 11.5px;">↻ Refresh</button>
+            </div>
+            <div id="secrets-list-container" class="secrets-cards"></div>
+          </div>
+
+          <!-- Pane: Workspace Sandbox & Config -->
+          <div id="pane-workspace" class="menu-tab-pane ${this.activeTab === "workspace" ? "active" : ""}">
+            <section class="config-section" style="margin: 0;">
+              <h3>File Sandbox &amp; Root Access</h3>
+              <p class="field-help">Choose the primary workspace directory and approved parent roots Mini-O may access. The workspace is always included in the sandbox boundary.</p>
+              <p class="config-file-path"><span>Active policy file:</span> <code id="menu-config-file-path">mini-o.config.json</code></p>
+              <label>Primary workspace <input id="menu-workspace-dir" placeholder="/home/me/project" /></label>
+              <label>Allowed directories <textarea id="menu-allowed-roots" rows="3" placeholder="One absolute directory per line"></textarea></label>
+              <div class="config-actions">
+                <button id="menu-workspace-config-save" class="primary">Save Workspace Policy</button>
+                <button id="menu-workspace-config-reload" class="secondary">Reload</button>
+              </div>
+              <p id="menu-workspace-config-status" class="field-help" role="status"></p>
+            </section>
+
+            <section class="config-section" style="margin: 0;">
+              <h3>AGENT.md Custom Instructions</h3>
+              <p class="field-help">Define custom behavioral guidelines, tool rules, and project context for this workspace.</p>
+              <div class="file-toolbar" style="padding: 4px 0; border: 0;">
+                <button id="menu-agent-new" class="secondary" style="width: auto;">New AGENT.md</button>
+                <button id="menu-agent-template" class="secondary" style="width: auto;">Templates</button>
+                <button id="menu-agent-save" class="primary" style="width: auto;">Save AGENT.md</button>
+              </div>
+              <input id="menu-agent-path" placeholder="AGENT.md or subfolder/AGENT.md" />
+              <textarea id="menu-agent-text" placeholder="Agent instructions for this workspace" rows="8"></textarea>
+              <div id="menu-agent-list" class="file-tree" style="max-height: 120px;"></div>
+              <div id="menu-agent-preview" class="preview"></div>
+            </section>
+          </div>
+
+          <!-- Pane: Tool Policies -->
+          <div id="pane-tools" class="menu-tab-pane ${this.activeTab === "tools" ? "active" : ""}">
+            <div class="config-section" style="margin: 0;">
+              <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+                <div>
+                  <h3 style="margin: 0;">Tool Execution Policies</h3>
+                  <p class="field-help" style="margin: 2px 0 0;">Control execution policies for shell commands, file modifications, and network access.</p>
+                </div>
+                <label class="toggle"><input type="checkbox" id="menu-confirm-tools" /> <span>Allow tools requiring confirmation</span></label>
+              </div>
+              <div id="menu-tool-list" class="tool-list" style="margin-top: 10px; max-height: 480px; overflow-y: auto;"></div>
+            </div>
+          </div>
+
+          <!-- Pane: Integrations -->
+          <div id="pane-integrations" class="menu-tab-pane ${this.activeTab === "integrations" ? "active" : ""}">
+            <div style="display: flex; align-items: center; justify-content: space-between;">
+              <p class="field-help" style="margin: 0; flex: 1;">Connect Mini-O to editors, IDEs, and platform adapters through permissioned interfaces.</p>
+              <button id="menu-refresh-integrations" class="secondary" style="width: auto; padding: 4px 10px; font-size: 12px;">Refresh catalog</button>
+            </div>
+            <section class="integration-section" style="margin: 0;">
+              <h3>Local plugins</h3>
+              <div id="menu-plugin-list" class="integration-list"></div>
+            </section>
+            <section class="integration-section" style="margin: 0;">
+              <h3>IDE and platform adapters</h3>
+              <div id="menu-integration-list" class="integration-list"></div>
+            </section>
+          </div>
+
+          <!-- Pane: Settings -->
+          <div id="pane-settings" class="menu-tab-pane ${this.activeTab === "settings" ? "active" : ""}">
+            <fieldset><legend>Appearance</legend>
+              <label>Theme <select id="menu-pref-theme"><option>system</option><option>light</option><option>dark</option><option>high-contrast</option></select></label>
+              <label>Density <select id="menu-pref-density"><option>comfortable</option><option>compact</option></select></label>
+              <label>Font size <select id="menu-pref-font"><option>normal</option><option>small</option><option>large</option></select></label>
+              <label>Message width <select id="menu-pref-width"><option>standard</option><option>narrow</option><option>wide</option></select></label>
+            </fieldset>
+            <fieldset><legend>System Health &amp; Error Diagnostics</legend>
+              <p style="font-size: 12px; color: var(--text-muted); margin: 4px 0 8px;">Mini-O maintains active real-time diagnostics for network connections, model streams, file concurrency, and sandbox execution.</p>
+              <div class="modal-actions" style="justify-content: flex-start; margin-top: 6px;">
+                <button class="secondary" id="menu-open-diagnostics" style="width: auto;">Open Diagnostics Log Viewer</button>
+                <button class="secondary" id="menu-reset-settings" style="width: auto;">Reset appearance</button>
+              </div>
+            </fieldset>
+            <div class="modal-actions" style="margin-top: 8px;">
+              <button class="secondary" id="menu-export-preferences" style="width: auto;">Export preferences</button>
+              <button class="secondary" id="menu-import-preferences" style="width: auto;">Import preferences</button>
+              <button class="primary" id="menu-save-appearance" style="width: auto;">Save appearance</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    showCustomModal(html);
+    this.bindModalEvents();
+  },
+
+  switchTab(name) {
+    this.activeTab = name;
+    document.querySelectorAll(".menu-tab-btn").forEach(btn => {
+      btn.classList.toggle("active", btn.dataset.menuTab === name);
+    });
+    document.querySelectorAll(".menu-tab-pane").forEach(pane => {
+      pane.classList.toggle("active", pane.id === `pane-${name}`);
+    });
+    this.loadTab(name);
+  },
+
+  async loadTab(name) {
+    if (name === "secrets") await this.loadSecrets();
+    if (name === "workspace") await this.loadWorkspace();
+    if (name === "tools") await this.loadTools();
+    if (name === "integrations") await this.loadIntegrations();
+    if (name === "settings") this.loadSettings();
+  },
+
+  bindModalEvents() {
+    // Tab switching
+    document.querySelectorAll(".menu-tab-btn").forEach(btn => {
+      btn.onclick = () => this.switchTab(btn.dataset.menuTab);
+    });
+
+    // Provider select preset autofill
+    const providerSelect = document.getElementById("secret-provider");
+    if (providerSelect) {
+      providerSelect.onchange = () => {
+        const preset = providerPresets[providerSelect.value] || providerPresets.custom;
+        const nameInput = document.getElementById("secret-name");
+        const keyInput = document.getElementById("secret-key");
+        const valInput = document.getElementById("secret-value");
+        const repoInput = document.getElementById("secret-repo");
+        const instanceField = document.getElementById("secret-instance-url-field");
+
+        if (nameInput) nameInput.value = preset.name;
+        if (keyInput) keyInput.value = preset.key;
+        if (valInput) valInput.placeholder = preset.placeholder;
+        if (repoInput) repoInput.placeholder = preset.repoPlaceholder;
+        if (instanceField) instanceField.style.display = preset.instanceUrl ? "flex" : "none";
+      };
+    }
+
+    // Toggle secret visibility
+    const toggleMaskBtn = document.getElementById("btn-toggle-secret-visibility");
+    if (toggleMaskBtn) {
+      toggleMaskBtn.onclick = () => {
+        const input = document.getElementById("secret-value");
+        if (input) {
+          input.type = input.type === "password" ? "text" : "password";
+          toggleMaskBtn.textContent = input.type === "password" ? "👁️" : "🔒";
+        }
+      };
+    }
+
+    // Save secret
+    document.getElementById("btn-save-secret")?.addEventListener("click", () => this.saveSecret());
+    document.getElementById("btn-reset-secret-form")?.addEventListener("click", () => this.resetSecretForm());
+    document.getElementById("btn-refresh-secrets")?.addEventListener("click", () => this.loadSecrets());
+
+    // Workspace Sandbox & AGENT.md
+    document.getElementById("menu-workspace-config-save")?.addEventListener("click", () => this.saveWorkspace());
+    document.getElementById("menu-workspace-config-reload")?.addEventListener("click", () => this.loadWorkspace());
+    document.getElementById("menu-agent-save")?.addEventListener("click", () => this.saveAgent());
+    document.getElementById("menu-agent-new")?.addEventListener("click", () => {
+      document.getElementById("menu-agent-path").value = "AGENT.md";
+      document.getElementById("menu-agent-text").value = "# Agent instructions\n\n";
+    });
+    document.getElementById("menu-agent-template")?.addEventListener("click", () => this.showAgentTemplates());
+
+    // Tools
+    const confirmTools = document.getElementById("menu-confirm-tools");
+    if (confirmTools) {
+      confirmTools.checked = JSON.parse(storage.get("confirmedTools", "[]")).length > 0;
+      confirmTools.onchange = event => storage.set("confirmedTools", JSON.stringify(event.target.checked ? ["write_file", "run_python", "run_shell", "web_fetch"] : []));
+    }
+
+    // Integrations
+    document.getElementById("menu-refresh-integrations")?.addEventListener("click", () => this.loadIntegrations());
+
+    // Settings
+    document.getElementById("menu-open-diagnostics")?.addEventListener("click", () => {
+      closeModal();
+      showDiagnosticsModal();
+    });
+    document.getElementById("menu-reset-settings")?.addEventListener("click", () => {
+      ["theme", "density", "font-size", "message-width"].forEach(key => localStorage.removeItem(`mini-o.${key}`));
+      applyAppearance();
+      this.loadSettings();
+      notify("success", "Appearance reset");
+    });
+    document.getElementById("menu-save-appearance")?.addEventListener("click", () => {
+      storage.set("theme", document.getElementById("menu-pref-theme").value);
+      storage.set("density", document.getElementById("menu-pref-density").value);
+      storage.set("font-size", document.getElementById("menu-pref-font").value);
+      storage.set("message-width", document.getElementById("menu-pref-width").value);
+      applyAppearance();
+      notify("success", "Appearance settings saved");
+    });
+    document.getElementById("menu-export-preferences")?.addEventListener("click", () => downloadJson("mini-o-preferences.json", preferencesSnapshot()));
+    document.getElementById("menu-import-preferences")?.addEventListener("click", () => {
+      const input = document.createElement("input");
+      input.type = "file";
+      input.accept = "application/json";
+      input.onchange = async () => {
+        try {
+          const payload = JSON.parse(await input.files[0].text());
+          if (payload.format !== "mini-o.preferences" || payload.version !== 1) throw new Error("Unsupported preferences file");
+          Object.entries(payload.values || {}).forEach(([key, value]) => localStorage.setItem(`mini-o.${key}`, value));
+          applyAppearance();
+          this.loadSettings();
+          notify("success", "Preferences imported");
+        } catch (error) {
+          notify("error", error.message);
+        }
+      };
+      input.click();
+    });
+  },
+
+  async loadSecrets() {
+    const container = document.getElementById("secrets-list-container");
+    const countEl = document.getElementById("secrets-count");
+    if (!container) return;
+    try {
+      const list = await api.secrets();
+      if (countEl) countEl.textContent = String(list.length);
+      if (!list.length) {
+        container.innerHTML = `
+          <div class="empty-state" style="border: 1px dashed var(--border); border-radius: var(--radius-md); padding: 20px;">
+            <p>No repository tokens or API keys configured yet.</p>
+            <p class="field-help">Use the form above to add a secret for GitHub, GitLab, or AI providers.</p>
+          </div>
+        `;
+        return;
+      }
+
+      container.innerHTML = "";
+      list.forEach(item => {
+        const card = document.createElement("article");
+        card.className = "secret-card";
+        card.dataset.id = item.id;
+
+        const top = document.createElement("div");
+        top.className = "secret-card-top";
+
+        const identity = document.createElement("div");
+        identity.className = "secret-identity";
+
+        const providerBadge = document.createElement("span");
+        providerBadge.className = `badge ${item.provider === "github" ? "badge-server" : item.provider === "gitlab" ? "badge-warning" : item.provider === "gemini" ? "badge-info" : "badge-client"}`;
+        providerBadge.textContent = (item.provider || "custom").toUpperCase();
+
+        const name = document.createElement("span");
+        name.className = "secret-name";
+        name.textContent = item.name;
+
+        const key = document.createElement("code");
+        key.className = "secret-env-key";
+        key.textContent = item.key;
+
+        identity.append(providerBadge, name, key);
+
+        const masked = document.createElement("span");
+        masked.className = "secret-masked";
+        masked.textContent = item.maskedValue || "••••••••";
+
+        top.append(identity, masked);
+
+        const meta = document.createElement("div");
+        meta.className = "secret-meta";
+        if (item.targetRepo) {
+          const repoSpan = document.createElement("span");
+          repoSpan.innerHTML = `<strong>Scope:</strong> ${item.targetRepo}`;
+          meta.appendChild(repoSpan);
+        }
+        if (item.instanceUrl) {
+          const urlSpan = document.createElement("span");
+          urlSpan.innerHTML = `<strong>URL:</strong> ${item.instanceUrl}`;
+          meta.appendChild(urlSpan);
+        }
+        if (item.description) {
+          const descSpan = document.createElement("span");
+          descSpan.textContent = item.description;
+          meta.appendChild(descSpan);
+        }
+        const updatedSpan = document.createElement("span");
+        updatedSpan.textContent = `Updated: ${new Date(item.updatedAt || item.createdAt).toLocaleDateString()}`;
+        meta.appendChild(updatedSpan);
+
+        const testResultContainer = document.createElement("div");
+        testResultContainer.className = "secret-test-result";
+        testResultContainer.style.display = item.lastTestStatus ? "block" : "none";
+        if (item.lastTestStatus === "ok") {
+          testResultContainer.className = "secret-test-result success";
+          testResultContainer.textContent = `✓ ${item.lastTestMessage || "Connection active"}`;
+        } else if (item.lastTestStatus === "error") {
+          testResultContainer.className = "secret-test-result error";
+          testResultContainer.textContent = `✗ ${item.lastTestMessage || "Authentication failed"}`;
+        }
+
+        const actions = document.createElement("div");
+        actions.className = "secret-actions";
+
+        const testBtn = document.createElement("button");
+        testBtn.type = "button";
+        testBtn.className = "secondary";
+        testBtn.textContent = "⚡ Test Connection";
+        testBtn.onclick = async () => {
+          testBtn.disabled = true;
+          testBtn.textContent = "Testing…";
+          try {
+            const res = await api.testSecret(item.id);
+            testResultContainer.style.display = "block";
+            testResultContainer.className = `secret-test-result ${res.status === "ok" ? "success" : "error"}`;
+            testResultContainer.textContent = res.message;
+            if (res.status === "ok") notify("success", res.message);
+            else notify("warning", res.message);
+          } catch (err) {
+            testResultContainer.style.display = "block";
+            testResultContainer.className = "secret-test-result error";
+            testResultContainer.textContent = err.message;
+            notify("error", `Test failed: ${err.message}`);
+          } finally {
+            testBtn.disabled = false;
+            testBtn.textContent = "⚡ Test Connection";
+          }
+        };
+
+        const delBtn = document.createElement("button");
+        delBtn.type = "button";
+        delBtn.className = "danger";
+        delBtn.textContent = "Delete";
+        delBtn.onclick = () => {
+          confirmAction(`Delete secret "${item.name}"?`, "This will permanently remove the credential from local storage.", async () => {
+            try {
+              await api.deleteSecret(item.id);
+              notify("success", "Secret deleted");
+              await this.loadSecrets();
+            } catch (err) {
+              notify("error", err.message);
+            }
+          });
+        };
+
+        actions.append(testBtn, delBtn);
+        card.append(top, meta, testResultContainer, actions);
+        container.appendChild(card);
+      });
+    } catch (err) {
+      if (container) container.innerHTML = `<div class="error-banner"><p>${err.message}</p></div>`;
+    }
+  },
+
+  async saveSecret() {
+    const provider = document.getElementById("secret-provider")?.value || "custom";
+    const name = document.getElementById("secret-name")?.value.trim();
+    const key = document.getElementById("secret-key")?.value.trim();
+    const value = document.getElementById("secret-value")?.value.trim();
+    const targetRepo = document.getElementById("secret-repo")?.value.trim();
+    const instanceUrl = document.getElementById("secret-instance-url")?.value.trim();
+    const description = document.getElementById("secret-description")?.value.trim();
+
+    if (!name) return notify("warning", "Please provide a name for this secret");
+    if (!key) return notify("warning", "Please provide an environment variable key (e.g. GITHUB_TOKEN)");
+    if (!value) return notify("warning", "Please provide the secret or token value");
+
+    try {
+      await api.saveSecret({
+        provider,
+        name,
+        key,
+        value,
+        targetRepo: targetRepo || undefined,
+        instanceUrl: instanceUrl || undefined,
+        description: description || undefined,
+      });
+
+      notify("success", `Secret "${name}" (${key}) saved successfully`);
+      this.resetSecretForm();
+      await this.loadSecrets();
+    } catch (err) {
+      notify("error", `Failed to save secret: ${err.message}`);
+    }
+  },
+
+  resetSecretForm() {
+    const providerSelect = document.getElementById("secret-provider");
+    if (providerSelect) {
+      providerSelect.value = "github";
+      providerSelect.dispatchEvent(new Event("change"));
+    }
+    const valInput = document.getElementById("secret-value");
+    if (valInput) valInput.value = "";
+    const descInput = document.getElementById("secret-description");
+    if (descInput) descInput.value = "";
+    const repoInput = document.getElementById("secret-repo");
+    if (repoInput) repoInput.value = "";
+    const instInput = document.getElementById("secret-instance-url");
+    if (instInput) instInput.value = "";
+  },
+
+  async loadWorkspace() {
+    const list = document.getElementById("menu-agent-list");
     try {
       const workspace = await api.workspaceConfig();
-      document.getElementById("workspace-dir").value = workspace.workspace_dir;
-      document.getElementById("allowed-roots").value = workspace.allowed_roots.join("\n");
-      document.getElementById("config-file-path").textContent = workspace.config_file || "mini-o.config.json";
-      this.toolPolicies = workspace.tools || {};
-      this.renderToolPolicies();
+      const wsDir = document.getElementById("menu-workspace-dir");
+      const roots = document.getElementById("menu-allowed-roots");
+      const cfgPath = document.getElementById("menu-config-file-path");
+      if (wsDir) wsDir.value = workspace.workspace_dir;
+      if (roots) roots.value = workspace.allowed_roots.join("\n");
+      if (cfgPath) cfgPath.textContent = workspace.config_file || "mini-o.config.json";
+
       const entries = await api.agents();
-      list.innerHTML = entries.length ? "" : "<p class='empty-state'>No AGENT.md files yet.</p>";
-      entries.forEach(e => {
-        const b = document.createElement("button");
-        b.className = "file-entry";
-        b.textContent = `${e.path} (${e.size} bytes)`;
-        b.onclick = () => this.open(e.path);
-        list.appendChild(b);
-      });
-    } catch (e) { list.textContent = e.message; }
+      if (list) {
+        list.innerHTML = entries.length ? "" : "<p class='empty-state'>No AGENT.md files yet.</p>";
+        entries.forEach(e => {
+          const b = document.createElement("button");
+          b.className = "file-entry";
+          b.textContent = `${e.path} (${e.size} bytes)`;
+          b.onclick = () => this.openAgent(e.path);
+          list.appendChild(b);
+        });
+      }
+    } catch (e) {
+      if (list) list.textContent = e.message;
+    }
   },
-  async open(path) {
+
+  async openAgent(path) {
     const r = await api.readAgent(path);
-    document.getElementById("agent-path").value = path;
-    document.getElementById("agent-text").value = r.content;
-    document.getElementById("agent-preview").textContent = `Applies to: ${path.split("/").slice(0, -1).join("/") || "workspace root"}\n${r.content.slice(0, 300)}`;
+    const pathInput = document.getElementById("menu-agent-path");
+    const textInput = document.getElementById("menu-agent-text");
+    const preview = document.getElementById("menu-agent-preview");
+    if (pathInput) pathInput.value = path;
+    if (textInput) textInput.value = r.content;
+    if (preview) preview.textContent = `Applies to: ${path.split("/").slice(0, -1).join("/") || "workspace root"}\n${r.content.slice(0, 300)}`;
   },
-  async save() {
-    const path = document.getElementById("agent-path").value.trim();
-    if (!path) return;
-    const content = document.getElementById("agent-text").value;
+
+  async saveAgent() {
+    const path = document.getElementById("menu-agent-path")?.value.trim();
+    if (!path) return notify("warning", "Specify an AGENT.md path");
+    const content = document.getElementById("menu-agent-text")?.value || "";
     const validation = await api.validateAgent(path, content);
-    if (!validation.valid) throw new Error(validation.errors.join("; "));
+    if (!validation.valid) return notify("error", validation.errors.join("; "));
     await api.writeAgent(path, content);
-    await this.load();
+    notify("success", "Agent instructions saved");
+    await this.loadWorkspace();
   },
+
+  async showAgentTemplates() {
+    try {
+      const templates = await api.agentTemplates();
+      showModal("AGENT.md Templates", templates.map(t => `<button class="template-choice" data-template="${t.id}">${t.name}</button>`).join(""));
+      document.querySelectorAll(".template-choice").forEach(button => button.onclick = () => {
+        const template = templates.find(t => t.id === button.dataset.template);
+        if (template) {
+          const pathInput = document.getElementById("menu-agent-path");
+          const textInput = document.getElementById("menu-agent-text");
+          if (pathInput) pathInput.value = pathInput.value || "AGENT.md";
+          if (textInput) textInput.value = template.content;
+        }
+        closeModal();
+      });
+    } catch (e) {
+      notify("error", e.message);
+    }
+  },
+
   async saveWorkspace() {
-    const workspaceDir = document.getElementById("workspace-dir").value.trim();
-    const roots = document.getElementById("allowed-roots").value.split("\n").map(value => value.trim()).filter(Boolean);
-    const tools = {};
-    document.querySelectorAll("#config-tool-list [data-tool]").forEach(card => {
-      const name = card.dataset.tool;
-      tools[name] = {
-        enabled: card.querySelector("[data-policy-enabled]").checked,
-        mode: card.querySelector("[data-policy-mode]").value,
-        scope: card.querySelector("[data-policy-scope]").value,
-      };
-    });
-    const result = await api.updateWorkspaceConfig({ workspace_dir: workspaceDir, allowed_roots: roots, tools });
-    document.getElementById("workspace-dir").value = result.workspace_dir;
-    document.getElementById("allowed-roots").value = result.allowed_roots.join("\n");
-    document.getElementById("workspace-config-status").textContent = "Saved and applied immediately.";
-    this.toolPolicies = result.tools || tools;
-    await files.load(".");
+    const workspaceDir = document.getElementById("menu-workspace-dir")?.value.trim();
+    const roots = (document.getElementById("menu-allowed-roots")?.value || "").split("\n").map(value => value.trim()).filter(Boolean);
+    const statusEl = document.getElementById("menu-workspace-config-status");
+    try {
+      const result = await api.updateWorkspaceConfig({ workspace_dir: workspaceDir, allowed_roots: roots });
+      if (statusEl) statusEl.textContent = "Saved and applied immediately.";
+      notify("success", "Workspace policy saved");
+      await files.load(".");
+    } catch (err) {
+      notify("error", err.message);
+    }
   },
-  renderToolPolicies() {
-    const list = document.getElementById("config-tool-list");
-    list.innerHTML = "";
-    Object.entries(this.toolPolicies).forEach(([name, policy]) => {
-      const card = document.createElement("article");
-      card.className = "config-tool-card";
-      card.dataset.tool = name;
-      const title = document.createElement("strong");
-      title.textContent = name;
-      const enabled = document.createElement("label");
-      enabled.className = "toggle";
-      enabled.innerHTML = `<input type="checkbox" data-policy-enabled> Enabled`;
-      enabled.querySelector("input").checked = policy.enabled !== false;
-      const mode = document.createElement("select");
-      mode.dataset.policyMode = "";
-      mode.setAttribute("aria-label", `${name} permission`);
-      mode.innerHTML = "<option value='allow'>Allow</option><option value='confirm'>Confirm</option><option value='deny'>Deny</option>";
-      mode.value = policy.mode || "confirm";
-      const scope = document.createElement("select");
-      scope.dataset.policyScope = "";
-      scope.setAttribute("aria-label", `${name} approval scope`);
-      scope.innerHTML = "<option value='once'>Once</option><option value='conversation'>Conversation</option><option value='session'>Session</option>";
-      scope.value = policy.scope || "conversation";
-      card.append(title, enabled, mode, scope);
-      list.appendChild(card);
-    });
+
+  async loadTools() {
+    const list = document.getElementById("menu-tool-list");
+    if (!list) return;
+    try {
+      const tools = await api.tools();
+      list.innerHTML = "";
+      if (!tools.length) list.innerHTML = "<li class='empty-state'>No tools are registered.</li>";
+      const groups = new Map();
+      tools.forEach(tool => {
+        const group = groups.get(tool.category || "general") || [];
+        group.push(tool);
+        groups.set(tool.category || "general", group);
+      });
+      groups.forEach((entries, category) => {
+        const heading = document.createElement("li");
+        heading.className = "tool-group-heading";
+        heading.textContent = category[0].toUpperCase() + category.slice(1);
+        list.appendChild(heading);
+        entries.forEach(tool => {
+          const li = document.createElement("li");
+          li.innerHTML = `
+            <label class="tool-enabled"><input type="checkbox" checked data-tool="${tool.name}" /> Enabled</label>
+            <code></code><span class="confirm"></span><span class="tool-risk"></span>
+            <p></p>
+            <p class="tool-effects"></p>
+            <details><summary>Inputs and schema</summary><pre></pre></details>
+            <div class="tool-policy">
+              <select aria-label="Approval policy"><option value="confirm">Confirm</option><option value="allow">Always allow</option><option value="deny">Deny</option></select>
+              <select aria-label="Approval scope"><option value="once">Once</option><option value="conversation">Conversation</option><option value="session">Session</option></select>
+            </div>
+          `;
+          li.querySelector("code").textContent = tool.name;
+          li.querySelector(".confirm").textContent = tool.requires_confirmation ? " ⚠ confirmation" : "";
+          li.querySelector(".tool-risk").textContent = ` · risk: ${tool.risk || "low"}`;
+          li.querySelector("p").textContent = tool.description;
+          li.querySelector(".tool-effects").textContent = `Side effects: ${(tool.side_effects || []).join(", ") || "none"}`;
+          li.querySelector("pre").textContent = JSON.stringify(tool.parameters, null, 2);
+          const enabled = localStorage.getItem(`mini-o.tool.${tool.name}`) !== "false";
+          li.querySelector("input").checked = enabled;
+          li.querySelector("input").onchange = event => {
+            localStorage.setItem(`mini-o.tool.${tool.name}`, String(event.target.checked));
+            const current = JSON.parse(localStorage.getItem("mini-o.enabled-tools") || "null") || tools.map(item => item.name);
+            const next = event.target.checked ? [...new Set([...current, tool.name])] : current.filter(name => name !== tool.name);
+            localStorage.setItem("mini-o.enabled-tools", JSON.stringify(next));
+          };
+          const policy = tool.policy || {};
+          li.querySelectorAll("select")[0].value = policy.mode || "confirm";
+          li.querySelectorAll("select")[1].value = policy.scope || "conversation";
+          li.querySelectorAll("select").forEach((select, index) => select.onchange = async () => {
+            const body = index === 0 ? { mode: select.value } : { scope: select.value };
+            try {
+              await api.updateToolPolicy(tool.name, body);
+              notify("success", `Updated ${tool.name} policy`);
+            } catch (error) {
+              select.value = index === 0 ? policy.mode || "confirm" : policy.scope || "conversation";
+              notify("error", error.message);
+            }
+          });
+          list.appendChild(li);
+        });
+      });
+    } catch (error) {
+      list.textContent = error.message;
+    }
   },
+
+  async loadIntegrations() {
+    const pluginList = document.getElementById("menu-plugin-list");
+    const integrationList = document.getElementById("menu-integration-list");
+    if (!pluginList || !integrationList) return;
+    try {
+      const [plugins, catalog] = await Promise.all([api.plugins(), api.integrations()]);
+      pluginList.replaceChildren(...(plugins.length ? plugins.map(item => this.integrationCard(item, true)) : [integrations.empty("No local plugins installed.")]));
+      integrationList.replaceChildren(...(catalog.items?.length ? catalog.items.map(item => this.integrationCard(item, false)) : [integrations.empty("No integration targets published.")]));
+    } catch (error) {
+      pluginList.textContent = error.message;
+      integrationList.textContent = error.message;
+    }
+  },
+
+  integrationCard(item, plugin) {
+    const article = document.createElement("article");
+    article.className = "integration-card";
+    const heading = document.createElement("div");
+    heading.className = "integration-card-heading";
+    const title = document.createElement("strong");
+    title.textContent = item.name;
+    const status = document.createElement("span");
+    status.className = "badge";
+    status.textContent = plugin ? `v${item.version}` : item.status;
+    heading.append(title, status);
+    const description = document.createElement("p");
+    description.textContent = item.description || `${item.kind || "Integration"} via ${item.transport || "local plugin"}.`;
+    const details = document.createElement("p");
+    details.className = "field-help";
+    details.textContent = `${(item.platforms || []).join(", ")} · ${(item.capabilities || []).join(", ") || "manifest only"}`;
+    article.append(heading, description, details);
+    return article;
+  },
+
+  loadSettings() {
+    const theme = storage.get("theme", "dark");
+    const density = storage.get("density", "comfortable");
+    const fontSize = storage.get("font-size", "normal");
+    const width = storage.get("message-width", "standard");
+    const prefTheme = document.getElementById("menu-pref-theme");
+    const prefDensity = document.getElementById("menu-pref-density");
+    const prefFont = document.getElementById("menu-pref-font");
+    const prefWidth = document.getElementById("menu-pref-width");
+    if (prefTheme) prefTheme.value = theme;
+    if (prefDensity) prefDensity.value = density;
+    if (prefFont) prefFont.value = fontSize;
+    if (prefWidth) prefWidth.value = width;
+  },
+};
+
+const configure = {
+  load() { return workspaceMenu.loadWorkspace(); },
+  save() { return workspaceMenu.saveAgent(); },
+  saveWorkspace() { return workspaceMenu.saveWorkspace(); },
 };
 
 async function loadModels() {
@@ -614,8 +1234,9 @@ async function loadModels() {
     setStatus("online", `Ready · ${models.length} model${models.length === 1 ? "" : "s"}`);
   } catch (error) {
     if (error.name === "AbortError") return;
-    select.innerHTML = "<option value=''>Model server offline</option>";
-    document.getElementById("current-model").textContent = "No model";
+    if (select) select.innerHTML = "<option value=''>Model server offline</option>";
+    const curModel = document.getElementById("current-model");
+    if (curModel) curModel.textContent = "No model";
     updateSendState();
     setStatus("offline", "Server offline");
   }
@@ -665,6 +1286,7 @@ function formatBytes(value) {
 
 async function loadConversations() {
   const list = document.getElementById("conversation-list");
+  if (!list) return;
   try {
     const entries = await api.convs(document.getElementById("conversation-search")?.value || "", state.showArchived);
     list.innerHTML = entries.length ? "" : "<li class='empty-state'>No saved chats yet.</li>";
@@ -682,9 +1304,12 @@ async function loadConversations() {
           state.messages = full.messages;
           state.model = full.model;
           state.options = full.options || state.options;
-          document.getElementById("model-select").value = state.model;
-          document.getElementById("current-model").textContent = state.model;
-          messages.innerHTML = "";
+          const modelSel = document.getElementById("model-select");
+          if (modelSel) modelSel.value = state.model;
+          const curModel = document.getElementById("current-model");
+          if (curModel) curModel.textContent = state.model;
+          const msgEl = document.getElementById("messages");
+          if (msgEl) msgEl.innerHTML = "";
           full.messages.filter(m => ["user", "assistant"].includes(m.role)).forEach(m => chat.addMessage(m.role, m.content || ""));
           setPanel(sidebar, false);
           restoreDraft(state.conversationId);
@@ -707,7 +1332,7 @@ async function loadConversations() {
       const next = event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1 : (index + (event.key === "ArrowUp" ? -1 : 1) + buttons.length) % buttons.length;
       buttons[next]?.focus();
     });
-  } catch (e) { list.textContent = e.message; }
+  } catch (e) { if (list) list.textContent = e.message; }
 }
 
 function conversationActions(conversation) {
@@ -733,15 +1358,16 @@ function selectTab(name) {
 
 const integrations = {
   async load() {
-    const pluginList = document.getElementById("plugin-list");
-    const integrationList = document.getElementById("integration-list");
+    const pluginList = document.getElementById("plugin-list") || document.getElementById("menu-plugin-list");
+    const integrationList = document.getElementById("integration-list") || document.getElementById("menu-integration-list");
+    if (!pluginList && !integrationList) return;
     try {
       const [plugins, catalog] = await Promise.all([api.plugins(), api.integrations()]);
-      pluginList.replaceChildren(...(plugins.length ? plugins.map(item => this.card(item, true)) : [this.empty("No local plugins installed.")]));
-      integrationList.replaceChildren(...(catalog.items?.length ? catalog.items.map(item => this.card(item, false)) : [this.empty("No integration targets published.")]));
+      if (pluginList) pluginList.replaceChildren(...(plugins.length ? plugins.map(item => this.card(item, true)) : [this.empty("No local plugins installed.")]));
+      if (integrationList) integrationList.replaceChildren(...(catalog.items?.length ? catalog.items.map(item => this.card(item, false)) : [this.empty("No integration targets published.")]));
     } catch (error) {
-      pluginList.textContent = error.message;
-      integrationList.textContent = error.message;
+      if (pluginList) pluginList.textContent = error.message;
+      if (integrationList) integrationList.textContent = error.message;
     }
   },
   empty(message) { const p = document.createElement("p"); p.className = "empty-state"; p.textContent = message; return p; },
@@ -1224,77 +1850,7 @@ function applyAppearance() {
 }
 
 function openSettings() {
-  const theme = storage.get("theme", "dark"), density = storage.get("density", "comfortable"), fontSize = storage.get("font-size", "normal"), width = storage.get("message-width", "standard");
-  showModal(
-    "Settings & Diagnostics",
-    `<input id="setting-filter" placeholder="Search settings…" aria-label="Search settings">
-     <fieldset><legend>Appearance</legend>
-       <label>Theme <select id="pref-theme"><option>system</option><option>light</option><option>dark</option><option>high-contrast</option></select></label>
-       <label>Density <select id="pref-density"><option>comfortable</option><option>compact</option></select></label>
-       <label>Font size <select id="pref-font"><option>normal</option><option>small</option><option>large</option></select></label>
-       <label>Message width <select id="pref-width"><option>standard</option><option>narrow</option><option>wide</option></select></label>
-     </fieldset>
-     <fieldset><legend>System Health & Error Diagnostics</legend>
-       <p>Mini-O maintains active real-time diagnostics for network connections, model streams, file concurrency, and sandbox execution.</p>
-       <div class="modal-actions" style="justify-content: flex-start; margin-top: 6px;">
-         <button class="secondary" id="settings-open-diagnostics">Open Diagnostics Log Viewer</button>
-       </div>
-     </fieldset>`,
-    '<div class="modal-actions"><button class="secondary" id="reset-settings">Reset appearance</button><button class="secondary" id="export-preferences">Export preferences</button><button class="secondary" id="import-preferences">Import preferences</button><button class="secondary" id="send-feedback">Feedback</button><button class="primary" id="save-appearance">Save settings</button></div>'
-  );
-  document.getElementById("pref-theme").value = theme;
-  document.getElementById("pref-density").value = density;
-  document.getElementById("pref-font").value = fontSize;
-  document.getElementById("pref-width").value = width;
-
-  document.getElementById("settings-open-diagnostics")?.addEventListener("click", () => {
-    closeModal();
-    showDiagnosticsModal();
-  });
-
-  document.getElementById("setting-filter").oninput = event => {
-    const needle = event.target.value.toLowerCase();
-    document.querySelectorAll("#modal label, #modal fieldset").forEach(item => item.hidden = needle && !item.textContent.toLowerCase().includes(needle));
-  };
-  document.getElementById("reset-settings").onclick = () => {
-    ["theme", "density", "font-size", "message-width"].forEach(key => localStorage.removeItem(`mini-o.${key}`));
-    applyAppearance();
-    notify("success", "Appearance reset");
-  };
-  document.getElementById("save-appearance").onclick = () => {
-    storage.set("theme", document.getElementById("pref-theme").value);
-    storage.set("density", document.getElementById("pref-density").value);
-    storage.set("font-size", document.getElementById("pref-font").value);
-    storage.set("message-width", document.getElementById("pref-width").value);
-    applyAppearance();
-    closeModal();
-    notify("success", "Settings saved");
-  };
-  document.getElementById("export-preferences").onclick = () => downloadJson("mini-o-preferences.json", preferencesSnapshot());
-  document.getElementById("import-preferences").onclick = () => {
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = "application/json";
-    input.onchange = async () => {
-      try {
-        const payload = JSON.parse(await input.files[0].text());
-        if (payload.format !== "mini-o.preferences" || payload.version !== 1) throw new Error("Unsupported preferences file");
-        Object.entries(payload.values || {}).forEach(([key, value]) => localStorage.setItem(`mini-o.${key}`, value));
-        applyAppearance();
-        notify("success", "Preferences imported");
-      } catch (error) {
-        notify("error", error.message);
-      }
-    };
-    input.click();
-  };
-  document.getElementById("send-feedback").onclick = async () => {
-    const description = prompt("Describe the issue or feedback");
-    if (description?.trim()) {
-      await api.feedback({ description: description.trim() });
-      notify("success", "Feedback saved locally");
-    }
-  };
+  workspaceMenu.open("settings");
 }
 
 const settingsGroups = new MutationObserver(() => {
@@ -1431,14 +1987,23 @@ document.getElementById("modal").onclick = event => {
   if (event.target.id === "modal" || event.target.classList.contains("modal-close")) closeModal();
 };
 
-document.getElementById("enable-tools").checked = state.useTools;
-document.getElementById("enable-tools").onchange = event => {
-  state.useTools = event.target.checked;
-  storage.set("tools", state.useTools);
-};
+document.getElementById("open-menu")?.addEventListener("click", () => workspaceMenu.open("secrets"));
+document.getElementById("open-menu-sidebar")?.addEventListener("click", () => workspaceMenu.open("secrets"));
+document.getElementById("generation-settings")?.addEventListener("click", () => workspaceMenu.open("settings"));
+
+const enableToolsEl = document.getElementById("enable-tools");
+if (enableToolsEl) {
+  enableToolsEl.checked = state.useTools;
+  enableToolsEl.onchange = event => {
+    state.useTools = event.target.checked;
+    storage.set("tools", state.useTools);
+  };
+}
 const confirmTools = document.getElementById("confirm-tools");
-confirmTools.checked = JSON.parse(storage.get("confirmedTools", "[]")).length > 0;
-confirmTools.onchange = event => storage.set("confirmedTools", JSON.stringify(event.target.checked ? ["write_file", "run_python", "run_shell", "web_fetch"] : []));
+if (confirmTools) {
+  confirmTools.checked = JSON.parse(storage.get("confirmedTools", "[]")).length > 0;
+  confirmTools.onchange = event => storage.set("confirmedTools", JSON.stringify(event.target.checked ? ["write_file", "run_python", "run_shell", "web_fetch"] : []));
+}
 
 document.querySelectorAll(".tab").forEach(tab => tab.onclick = () => selectTab(tab.dataset.tab));
 document.querySelectorAll(".tab").forEach((tab, index, tabs) => tab.onkeydown = event => {
@@ -1448,18 +2013,22 @@ document.querySelectorAll(".tab").forEach((tab, index, tabs) => tab.onkeydown = 
   tabs[next].focus(); tabs[next].click();
 });
 
-document.getElementById("open-files").onclick = () => { setPanel(rightPanel, true); selectTab("files"); };
-document.getElementById("toggle-right-panel").onclick = () => setPanel(rightPanel, rightPanel.classList.contains("collapsed"));
-document.getElementById("close-right-panel").onclick = () => setPanel(rightPanel, false);
-document.getElementById("toggle-sidebar").onclick = () => setPanel(sidebar, sidebar.classList.contains("collapsed"));
+document.getElementById("open-files")?.addEventListener("click", () => {
+  setPanel(rightPanel, true);
+  files.load();
+});
+document.getElementById("toggle-right-panel")?.addEventListener("click", () => setPanel(rightPanel, rightPanel.classList.contains("collapsed")));
+document.getElementById("close-right-panel")?.addEventListener("click", () => setPanel(rightPanel, false));
+document.getElementById("toggle-sidebar")?.addEventListener("click", () => setPanel(sidebar, sidebar.classList.contains("collapsed")));
 document.getElementById("collapse-sidebar")?.addEventListener("click", () => setPanel(sidebar, false));
 document.getElementById("toggle-fullscreen")?.addEventListener("click", toggleFullscreenTerminal);
-scrim.onclick = () => { setPanel(sidebar, false); setPanel(rightPanel, false); };
+if (scrim) scrim.onclick = () => { setPanel(sidebar, false); setPanel(rightPanel, false); };
 
-document.getElementById("attach").onclick = async () => {
-  setPanel(rightPanel, true); selectTab("files");
-  notify("success", "Choose a file from Workspace; double-click attaches it.");
-};
+document.getElementById("attach")?.addEventListener("click", async () => {
+  setPanel(rightPanel, true);
+  files.load();
+  notify("success", "Choose a file from Workspace Explorer; double-click attaches it.");
+});
 
 document.addEventListener("mini-o:attach", async event => {
   const path = event.detail?.path;
@@ -1484,6 +2053,7 @@ document.addEventListener("mini-o:insert-context", event => {
 
 function renderAttachments() {
   const activeFiles = document.getElementById("active-files");
+  if (!activeFiles) return;
   activeFiles.innerHTML = "";
   state.attachedFiles.forEach((file, index) => {
     const chip = document.createElement("span");
@@ -1513,44 +2083,48 @@ function renderAttachments() {
   });
 }
 
-document.getElementById("agent-save").onclick = async () => {
+document.getElementById("agent-save")?.addEventListener("click", async () => {
   try {
     await configure.save();
     notify("success", "Agent instructions saved");
   } catch (e) {
     notify("error", e.message);
   }
-};
-document.getElementById("workspace-config-save").onclick = async () => {
+});
+document.getElementById("workspace-config-save")?.addEventListener("click", async () => {
   try {
     await configure.saveWorkspace();
     notify("success", "File access updated");
   } catch (e) {
     notify("error", e.message);
   }
-};
-document.getElementById("workspace-config-reload").onclick = () => configure.load().catch(error => notify("error", error.message));
-document.getElementById("refresh-integrations").onclick = () => integrations.load().catch(error => notify("error", error.message));
+});
+document.getElementById("workspace-config-reload")?.addEventListener("click", () => configure.load().catch(error => notify("error", error.message)));
+document.getElementById("refresh-integrations")?.addEventListener("click", () => integrations.load().catch(error => notify("error", error.message)));
 
-document.getElementById("agent-new").onclick = () => {
-  document.getElementById("agent-path").value = "AGENT.md";
-  document.getElementById("agent-text").value = "# Agent instructions\n\n";
-};
+document.getElementById("agent-new")?.addEventListener("click", () => {
+  const p = document.getElementById("agent-path");
+  const t = document.getElementById("agent-text");
+  if (p) p.value = "AGENT.md";
+  if (t) t.value = "# Agent instructions\n\n";
+});
 
-document.getElementById("agent-template").onclick = async () => {
+document.getElementById("agent-template")?.addEventListener("click", async () => {
   try {
     const templates = await api.agentTemplates();
     showModal("AGENT.md templates", templates.map(t => `<button class="template-choice" data-template="${t.id}">${t.name}</button>`).join(""));
     document.querySelectorAll(".template-choice").forEach(button => button.onclick = () => {
       const template = templates.find(t => t.id === button.dataset.template);
-      document.getElementById("agent-path").value = document.getElementById("agent-path").value || "AGENT.md";
-      document.getElementById("agent-text").value = template.content;
+      const p = document.getElementById("agent-path");
+      const t = document.getElementById("agent-text");
+      if (p) p.value = p.value || "AGENT.md";
+      if (t && template) t.value = template.content;
       closeModal();
     });
   } catch (e) {
     notify("error", e.message);
   }
-};
+});
 
 bindWelcomeCards();
 const input = document.getElementById("input");
@@ -1561,6 +2135,12 @@ input.addEventListener("input", () => {
 input.addEventListener("input", saveDraft);
 
 document.addEventListener("keydown", event => {
+  // Shortcut: Alt+M or Ctrl+M to open Workspace Menu
+  if ((event.altKey || event.ctrlKey || event.metaKey) && (event.key === "m" || event.key === "M" || event.key === "µ")) {
+    event.preventDefault();
+    workspaceMenu.open("secrets");
+    return;
+  }
   // Shortcut: Alt+F to toggle full-screen terminal
   if (event.altKey && (event.key === "f" || event.key === "F" || event.key === "ƒ")) {
     event.preventDefault();
@@ -1593,9 +2173,8 @@ document.addEventListener("keydown", event => {
 });
 
 applyAppearance();
-document.querySelector(".shortcut-hint").textContent = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘↵ send · ⇧↵ newline · ⌥F fullscreen" : "Enter to send · Shift+Enter newline · Alt+F fullscreen";
-const savedTab = storage.get("tab", "files");
-selectTab(savedTab);
+const shortcutHint = document.querySelector(".shortcut-hint");
+if (shortcutHint) shortcutHint.textContent = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘↵ send · ⇧↵ newline · ⌥M menu · ⌥F fullscreen" : "Enter to send · Shift+Enter newline · Alt+M menu · Alt+F fullscreen";
 setPanel(sidebar, storage.get("sidebar-open", "true") !== "false");
 setPanel(rightPanel, storage.get("workspace-open", "true") !== "false");
 updateFullscreenButtonState();
@@ -1622,8 +2201,9 @@ if (storage.get("onboarding-seen", "false") !== "true") {
        <p><strong>System diagnostic:</strong> ${diagnostic}</p>
        <ol>
          <li>Select a model from the header dropdown.</li>
-         <li>Browse and edit files in the right Workspace panel.</li>
-         <li>Inspect error traces in <strong>Settings & Diagnostics</strong> anytime.</li>
+         <li>Browse, view, and edit files in the right <strong>File Explorer</strong> panel.</li>
+         <li>Click the <strong>☰ Menu</strong> button in the header (or press <kbd>Alt+M</kbd>) to configure <strong>API keys &amp; secrets</strong> (GitHub, GitLab, etc.), tool policies, file sandbox access, and IDE integrations.</li>
+         <li>Inspect error traces in <strong>Settings &amp; Diagnostics</strong> anytime.</li>
        </ol>`,
       '<div class="modal-actions"><button class="primary modal-close" id="finish-onboarding">Get started</button></div>'
     );

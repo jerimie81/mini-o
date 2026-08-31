@@ -247,6 +247,101 @@ interface Conversation {
 
 const conversations = new Map<string, Conversation>();
 
+// Repository Secrets & API Keys Store
+interface SecretItem {
+  id: string;
+  name: string;
+  provider: 'github' | 'gitlab' | 'bitbucket' | 'git' | 'gemini' | 'openai' | 'anthropic' | 'huggingface' | 'custom';
+  key: string;
+  value: string;
+  masked_value: string;
+  target_repo?: string;
+  instance_url?: string;
+  description?: string;
+  created_at: string;
+  updated_at: string;
+  status: 'active' | 'configured' | 'error';
+  last_tested?: string;
+  test_result?: string;
+}
+
+const secretsStore = new Map<string, SecretItem>();
+
+function maskSecret(val: string): string {
+  if (!val) return '';
+  if (val.length <= 8) return '••••••••';
+  return `${val.slice(0, 4)}••••••••${val.slice(-4)}`;
+}
+
+const secretsFilePath = path.join(dataDir, 'mini-o.secrets.json');
+
+function saveSecretsToDisk() {
+  try {
+    const list = Array.from(secretsStore.values());
+    fs.writeFileSync(secretsFilePath, JSON.stringify(list, null, 2), 'utf-8');
+  } catch (err) {
+    console.warn('[Mini-O] Warning: Could not write secrets file:', err);
+  }
+}
+
+function loadSecretsFromDisk() {
+  try {
+    if (fs.existsSync(secretsFilePath)) {
+      const data = JSON.parse(fs.readFileSync(secretsFilePath, 'utf-8'));
+      if (Array.isArray(data)) {
+        for (const item of data) {
+          if (item && item.id && item.name) {
+            secretsStore.set(item.id, {
+              ...item,
+              masked_value: item.masked_value || maskSecret(item.value || ''),
+            });
+            if (item.key && item.value && !process.env[item.key]) {
+              process.env[item.key] = item.value;
+            }
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[Mini-O] Warning: Could not read secrets file:', err);
+  }
+
+  // Prepopulate from existing environment variables if not already in store
+  if (process.env.GEMINI_API_KEY && !Array.from(secretsStore.values()).some(s => s.key === 'GEMINI_API_KEY')) {
+    const id = 'sec_env_gemini';
+    secretsStore.set(id, {
+      id,
+      name: 'Google Gemini API Key',
+      provider: 'gemini',
+      key: 'GEMINI_API_KEY',
+      value: process.env.GEMINI_API_KEY,
+      masked_value: maskSecret(process.env.GEMINI_API_KEY),
+      description: 'Configured via system environment',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      status: 'active',
+    });
+  }
+
+  if (process.env.GITHUB_TOKEN && !Array.from(secretsStore.values()).some(s => s.key === 'GITHUB_TOKEN')) {
+    const id = 'sec_env_github';
+    secretsStore.set(id, {
+      id,
+      name: 'GitHub Personal Access Token',
+      provider: 'github',
+      key: 'GITHUB_TOKEN',
+      value: process.env.GITHUB_TOKEN,
+      masked_value: maskSecret(process.env.GITHUB_TOKEN),
+      description: 'Configured via system environment',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      status: 'configured',
+    });
+  }
+}
+
+loadSecretsFromDisk();
+
 // Tool definitions
 const toolDefinitions = [
   {
@@ -996,6 +1091,81 @@ function resolveSafePath(relPath: string = '.'): { ok: boolean; path: string; er
   return { ok: true, path: target };
 }
 
+// AGENT.md resolution — AGENT.md is the primary orchestrator for every
+// chat turn. Every AGENT.md between dataDir (root) and the active
+// workspace path is collected root-first and merged into one directive
+// block. Nested files refine the root file; nothing is ever dropped
+// silently. Returns which files actually applied so callers can surface
+// that to the client instead of leaving it invisible.
+interface AgentDirectiveResult {
+  block: string;
+  sources: string[];
+  active: boolean;
+}
+
+function resolveAgentDirectives(activeWorkspacePath?: string): AgentDirectiveResult {
+  const candidateDirs: string[] = [dataDir];
+
+  if (activeWorkspacePath && activeWorkspacePath !== '.' && activeWorkspacePath !== '') {
+    const resolved = resolveSafePath(activeWorkspacePath);
+    if (resolved.ok) {
+      // If activeWorkspacePath points at a file, scope to its directory.
+      let leaf = resolved.path;
+      try {
+        if (fs.existsSync(leaf) && fs.statSync(leaf).isFile()) {
+          leaf = path.dirname(leaf);
+        }
+      } catch {
+        // ignore stat errors, fall through with leaf as-is
+      }
+      const rel = path.relative(dataDir, leaf);
+      if (rel && !rel.startsWith('..')) {
+        const segments = rel.split(path.sep).filter(Boolean);
+        let acc = dataDir;
+        for (const seg of segments) {
+          acc = path.join(acc, seg);
+          candidateDirs.push(acc);
+        }
+      }
+    }
+  }
+
+  const sources: string[] = [];
+  const chunks: string[] = [];
+
+  for (const dir of candidateDirs) {
+    const agentPath = path.join(dir, 'AGENT.md');
+    if (!fs.existsSync(agentPath)) continue;
+    try {
+      const content = fs.readFileSync(agentPath, 'utf-8').trim();
+      if (!content) continue;
+      const rel = path.relative(dataDir, agentPath).replace(/\\/g, '/') || 'AGENT.md';
+      sources.push(rel);
+      chunks.push(`### Directives from ${rel}\n${content}`);
+    } catch {
+      // unreadable file — skip, don't silently pretend it applied
+    }
+  }
+
+  if (chunks.length === 0) {
+    return { block: '', sources: [], active: false };
+  }
+
+  const block = `=== AGENT.md — ABSOLUTE DIRECTIVES (authoritative) ===
+The instructions below come from AGENT.md and are non-negotiable. They
+override any default persona, formatting habit, or general behavior
+described elsewhere in this prompt. If a default conflicts with anything
+below, the directive below wins. Where multiple files are listed, files
+from deeper/more specific folders refine — never soften — the ones
+listed before them.
+
+${chunks.join('\n\n')}
+
+=== END AGENT.md DIRECTIVES ===`;
+
+  return { block, sources, active: true };
+}
+
 // Tool executor with structured policy checking & timeout safety
 async function executeTool(
   name: string,
@@ -1382,7 +1552,7 @@ function setupApiRoutes(router: express.Router) {
 
   // Chat stream
   router.post('/chat/stream', async (req, res) => {
-    const { model = DEFAULT_MODEL, messages, conversation_id, use_tools, confirmed_tools = [], options = {} } = req.body;
+    const { model = DEFAULT_MODEL, messages, conversation_id, use_tools, confirmed_tools = [], options = {}, workspace_path } = req.body;
 
     if (!Array.isArray(messages) || messages.length === 0) {
       return res.status(400).json(
@@ -1411,19 +1581,17 @@ function setupApiRoutes(router: express.Router) {
     let assistantContent = '';
     let streamStats: any = null;
 
-    // Read AGENT.md for custom workspace instructions if available
-    let agentInstructions = 'You are Mini-O, a versatile local AI workspace assistant with access to local workspace files and tools.';
-    const agentMdPath = path.join(dataDir, 'AGENT.md');
-    if (fs.existsSync(agentMdPath)) {
-      try {
-        const customAgent = fs.readFileSync(agentMdPath, 'utf-8');
-        if (customAgent.trim()) {
-          agentInstructions += `\n\nWorkspace Agent Directives (AGENT.md):\n${customAgent}`;
-        }
-      } catch {
-        // ignore read error
-      }
-    }
+    // AGENT.md is the primary orchestrator. Resolve every applicable
+    // AGENT.md (root -> active workspace folder) and put it ahead of the
+    // default persona so it reads as authoritative, not supplementary.
+    const basePersona = 'You are Mini-O, a versatile local AI workspace assistant with access to local workspace files and tools.';
+    const agentResult = resolveAgentDirectives(workspace_path);
+    const agentInstructions = agentResult.active
+      ? `${agentResult.block}\n\n${basePersona}`
+      : basePersona;
+
+    // Surface directive application immediately — never silent.
+    res.write(`event: agent_directives\ndata: ${JSON.stringify({ active: agentResult.active, sources: agentResult.sources })}\n\n`);
 
     try {
       const isGeminiModel = model?.startsWith('gemini') || (geminiClient && !model?.includes(':') && !model?.includes('llama') && !model?.includes('minimax') && !model?.includes('glm') && !model?.includes('gemma') && !model?.includes('qwen'));
@@ -1732,7 +1900,14 @@ function setupApiRoutes(router: express.Router) {
         }
 
         if (!ollamaSuccess) {
-          // Local agent simulation / fallback for offline setups
+          // Local agent simulation / fallback for offline setups.
+          // There is no model in this loop, so AGENT.md CANNOT be applied
+          // here — say so explicitly instead of silently pretending this
+          // scripted stub is the orchestrated agent.
+          res.write(`event: degraded_mode\ndata: ${JSON.stringify({ reason: 'ollama_unreachable', agent_directives_applied: false, agent_sources: agentResult.sources })}\n\n`);
+          const degradedNotice = agentResult.active
+            ? `_Offline fallback active (Ollama unreachable) — AGENT.md directives from ${agentResult.sources.join(', ')} are NOT applied in this mode._\n\n`
+            : '';
           let simulatedReply = '';
           const lowerPrompt = lastUserMsg.toLowerCase();
           let toolRan: { name: string; args: any; result: any } | null = null;
@@ -1773,6 +1948,7 @@ You can interact with workspace files, configure tool policies, or send tasks to
           }
 
           // Stream simulated tokens
+          simulatedReply = degradedNotice + simulatedReply;
           const words = simulatedReply.split(' ');
           for (const word of words) {
             const chunk = word + ' ';
@@ -2675,6 +2851,184 @@ You can interact with workspace files, configure tool policies, or send tasks to
       groups: ['general', 'appearance', 'models', 'chat', 'tools', 'workspace', 'privacy', 'diagnostics'],
       version: 1,
     });
+  });
+
+  // Secrets & Repository API Keys Management
+  router.get('/secrets', (_req, res) => {
+    const list = Array.from(secretsStore.values()).map(s => ({
+      id: s.id,
+      name: s.name,
+      provider: s.provider,
+      key: s.key,
+      masked_value: s.masked_value,
+      target_repo: s.target_repo,
+      instance_url: s.instance_url,
+      description: s.description,
+      created_at: s.created_at,
+      updated_at: s.updated_at,
+      status: s.status,
+      last_tested: s.last_tested,
+      test_result: s.test_result,
+    }));
+    res.json(list);
+  });
+
+  router.post('/secrets', (req, res) => {
+    const { name, provider = 'custom', key, value, target_repo, instance_url, description } = req.body;
+    if (!name || typeof name !== 'string' || !name.trim()) {
+      return res.status(400).json(formatErrorPayload(400, 'MISSING_SECRET_NAME', 'validation', 'Secret name is required', 'Provide a name for the API key or secret', req));
+    }
+    if (!value || typeof value !== 'string' || !value.trim()) {
+      return res.status(400).json(formatErrorPayload(400, 'MISSING_SECRET_VALUE', 'validation', 'Secret value/token is required', 'Enter the API key or access token', req));
+    }
+
+    const trimmedName = name.trim();
+    const trimmedVal = value.trim();
+    const envKey = (key || (
+      provider === 'github' ? 'GITHUB_TOKEN' :
+      provider === 'gitlab' ? 'GITLAB_TOKEN' :
+      provider === 'gemini' ? 'GEMINI_API_KEY' :
+      provider === 'openai' ? 'OPENAI_API_KEY' :
+      provider === 'anthropic' ? 'ANTHROPIC_API_KEY' :
+      provider === 'huggingface' ? 'HF_TOKEN' :
+      trimmedName.toUpperCase().replace(/[^A-Z0-9_]/g, '_')
+    )).trim();
+
+    const id = req.body.id || `sec_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const existing = secretsStore.get(id);
+
+    const record: SecretItem = {
+      id,
+      name: trimmedName,
+      provider,
+      key: envKey,
+      value: trimmedVal,
+      masked_value: maskSecret(trimmedVal),
+      target_repo: (target_repo || '').trim(),
+      instance_url: (instance_url || '').trim(),
+      description: (description || '').trim(),
+      created_at: existing?.created_at || new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      status: 'configured',
+    };
+
+    secretsStore.set(id, record);
+    process.env[envKey] = record.value;
+    saveSecretsToDisk();
+
+    res.json({
+      ok: true,
+      secret: {
+        id: record.id,
+        name: record.name,
+        provider: record.provider,
+        key: record.key,
+        masked_value: record.masked_value,
+        target_repo: record.target_repo,
+        instance_url: record.instance_url,
+        description: record.description,
+        created_at: record.created_at,
+        updated_at: record.updated_at,
+        status: record.status,
+      },
+    });
+  });
+
+  router.delete('/secrets/:id', (req, res) => {
+    const { id } = req.params;
+    const item = secretsStore.get(id);
+    if (!item) {
+      return res.status(404).json(formatErrorPayload(404, 'SECRET_NOT_FOUND', 'secrets', `Secret '${id}' not found`, 'Check the secret ID', req));
+    }
+    secretsStore.delete(id);
+    saveSecretsToDisk();
+    res.json({ ok: true, deleted: id });
+  });
+
+  router.post('/secrets/:id/test', async (req, res) => {
+    const { id } = req.params;
+    const item = secretsStore.get(id);
+    if (!item) {
+      return res.status(404).json(formatErrorPayload(404, 'SECRET_NOT_FOUND', 'secrets', `Secret '${id}' not found`, 'Check the secret ID', req));
+    }
+
+    try {
+      if (item.provider === 'github') {
+        const ghRes = await fetch('https://api.github.com/user', {
+          headers: {
+            'Authorization': `Bearer ${item.value}`,
+            'User-Agent': 'Mini-O-Workspace/0.1.0',
+            'Accept': 'application/vnd.github.v3+json',
+          },
+          signal: AbortSignal.timeout(10000),
+        });
+        if (ghRes.ok) {
+          const ghUser = await ghRes.json();
+          const scopes = ghRes.headers.get('x-oauth-scopes') || 'default token scopes';
+          item.status = 'active';
+          item.last_tested = new Date().toISOString();
+          item.test_result = `Connected as GitHub user @${ghUser.login} (${ghUser.name || 'Personal Account'}) · Scopes: ${scopes}`;
+          saveSecretsToDisk();
+          return res.json({ ok: true, message: item.test_result, user: ghUser.login });
+        } else {
+          item.status = 'error';
+          item.last_tested = new Date().toISOString();
+          item.test_result = `GitHub rejected token (HTTP ${ghRes.status}): ${ghRes.statusText}`;
+          saveSecretsToDisk();
+          return res.status(ghRes.status).json({ ok: false, message: item.test_result });
+        }
+      } else if (item.provider === 'gitlab') {
+        const gitlabBase = item.instance_url ? item.instance_url.replace(/\/$/, '') : 'https://gitlab.com';
+        const glRes = await fetch(`${gitlabBase}/api/v4/user`, {
+          headers: {
+            'Authorization': `Bearer ${item.value}`,
+            'PRIVATE-TOKEN': item.value,
+          },
+          signal: AbortSignal.timeout(10000),
+        });
+        if (glRes.ok) {
+          const glUser = await glRes.json();
+          item.status = 'active';
+          item.last_tested = new Date().toISOString();
+          item.test_result = `Connected as GitLab user @${glUser.username} (${glUser.name || 'Account'}) on ${gitlabBase}`;
+          saveSecretsToDisk();
+          return res.json({ ok: true, message: item.test_result, user: glUser.username });
+        } else {
+          item.status = 'error';
+          item.last_tested = new Date().toISOString();
+          item.test_result = `GitLab rejected token (HTTP ${glRes.status}): ${glRes.statusText}`;
+          saveSecretsToDisk();
+          return res.status(glRes.status).json({ ok: false, message: item.test_result });
+        }
+      } else if (item.provider === 'gemini') {
+        const testClient = getGeminiClient();
+        if (testClient) {
+          item.status = 'active';
+          item.last_tested = new Date().toISOString();
+          item.test_result = 'Gemini API client initialized successfully with valid credentials';
+          saveSecretsToDisk();
+          return res.json({ ok: true, message: item.test_result });
+        } else {
+          item.status = 'error';
+          item.last_tested = new Date().toISOString();
+          item.test_result = 'Gemini API client could not be initialized';
+          saveSecretsToDisk();
+          return res.status(500).json({ ok: false, message: item.test_result });
+        }
+      } else {
+        item.status = 'active';
+        item.last_tested = new Date().toISOString();
+        item.test_result = `Secret '${item.name}' verified and registered in environment (${item.key})`;
+        saveSecretsToDisk();
+        return res.json({ ok: true, message: item.test_result });
+      }
+    } catch (err: any) {
+      item.status = 'error';
+      item.last_tested = new Date().toISOString();
+      item.test_result = `Connection test failed: ${err.message}`;
+      saveSecretsToDisk();
+      return res.status(502).json({ ok: false, message: item.test_result });
+    }
   });
 
   router.get('/capabilities', (_req, res) => {

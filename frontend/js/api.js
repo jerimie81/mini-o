@@ -203,6 +203,18 @@ export const api = {
   }).then(json),
   plugins: () => getJson("/api/plugins"),
   integrations: () => getJson("/api/integrations"),
+  secrets: () => getJson("/api/secrets"),
+  saveSecret: (body) => fetch("/api/secrets", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  }).then(json).then(v => { invalidate("/api/secrets"); return v; }),
+  deleteSecret: (id) => fetch(`/api/secrets/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  }).then(json).then(v => { invalidate("/api/secrets"); return v; }),
+  testSecret: (id) => fetch(`/api/secrets/${encodeURIComponent(id)}/test`, {
+    method: "POST",
+  }).then(json),
   mcpManifest: () => getJson("/api/mcp/manifest"),
   geminiStatus: () => getJson("/api/gemini/status"),
   geminiGenerate: (body) => fetch("/api/gemini/generate", {
