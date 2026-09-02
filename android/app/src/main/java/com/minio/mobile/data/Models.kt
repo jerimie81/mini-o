@@ -1,10 +1,22 @@
 package com.minio.mobile.data
 
+import kotlinx.serialization.Serializable
+
+@Serializable
 data class Connection(
     val url: String,
     val token: String
 )
 
+@Serializable
+data class ConnectionProfile(
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val name: String,
+    val url: String,
+    val token: String
+)
+
+@Serializable
 data class FileItem(
     val name: String,
     val path: String,
@@ -13,6 +25,7 @@ data class FileItem(
     val modified: Double? = null
 )
 
+@Serializable
 data class FileContentResponse(
     val content: String,
     val modified: Double? = null,
@@ -20,12 +33,14 @@ data class FileContentResponse(
     val path: String? = null
 )
 
+@Serializable
 data class FileSaveResponse(
     val message: String,
     val modified: Double? = null,
     val size: Long? = null
 )
 
+@Serializable
 data class ChatMessage(
     val id: String = java.util.UUID.randomUUID().toString(),
     val role: String, // "user", "assistant", "system"
@@ -36,6 +51,14 @@ data class ChatMessage(
     val toolResult: String? = null
 )
 
+@Serializable
+data class StreamResponse(
+    val type: String, // "token", "tool_call", "tool_result", "error", "done"
+    val data: String? = null,
+    val name: String? = null
+)
+
+@Serializable
 data class ModelInfo(
     val name: String,
     val size: Long? = null,
@@ -45,6 +68,7 @@ data class ModelInfo(
     val family: String? = null
 )
 
+@Serializable
 data class ServerHealth(
     val status: String,
     val version: String,
@@ -53,6 +77,7 @@ data class ServerHealth(
     val uptime: Double? = null
 )
 
+@Serializable
 data class DiagnosticInfo(
     val version: String = "",
     val uptime: Double = 0.0,
@@ -62,6 +87,7 @@ data class DiagnosticInfo(
     val activeConnections: Int = 0
 )
 
+@Serializable
 data class PlatformInfo(
     val platform: String = "unknown",
     val arch: String = "unknown",

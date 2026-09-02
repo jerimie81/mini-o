@@ -26,6 +26,8 @@ fun ConnectScreen(
     onUrlChange: (String) -> Unit,
     token: String,
     onTokenChange: (String) -> Unit,
+    name: String,
+    onNameChange: (String) -> Unit,
     isLoading: Boolean,
     errorMessage: String?,
     onConnect: () -> Unit
@@ -110,6 +112,27 @@ fun ConnectScreen(
         }
 
         Spacer(Modifier.height(16.dp))
+
+        OutlinedTextField(
+            value = name,
+            onValueChange = onNameChange,
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("Profile Name") },
+            placeholder = { Text("Home PC") },
+            singleLine = true,
+            leadingIcon = { Icon(Icons.Rounded.Badge, contentDescription = null, tint = PrimaryBlue) },
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = PrimaryBlue,
+                unfocusedBorderColor = BorderColor,
+                focusedContainerColor = SurfacePanel,
+                unfocusedContainerColor = SurfacePanel,
+                focusedTextColor = TextPrimary,
+                unfocusedTextColor = TextPrimary
+            ),
+            shape = RoundedCornerShape(12.dp)
+        )
+
+        Spacer(Modifier.height(14.dp))
 
         OutlinedTextField(
             value = url,

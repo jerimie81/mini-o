@@ -14,6 +14,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class MiniOViewModel : ViewModel() {
+    var connectionProfiles by mutableStateOf<List<ConnectionProfile>>(emptyList()); private set
+    var activeConnectionId by mutableStateOf<String?>(null); private set
     var connection by mutableStateOf<Connection?>(null); private set
     var isConnected by mutableStateOf(false); private set
     var isConnecting by mutableStateOf(false); private set
@@ -76,7 +78,7 @@ class MiniOViewModel : ViewModel() {
         notificationMessage = null
     }
 
-    fun connect(url: String, token: String, onConnected: (Connection) -> Unit) {
+    fun connect(url: String, token: String, name: String = "Default", onConnected: (Connection) -> Unit) {
         val normalizedUrl = url.trim().removeSuffix("/")
         if (!normalizedUrl.startsWith("http://") && !normalizedUrl.startsWith("https://")) {
             connectionError = "Please enter a valid URL starting with http:// or https://"
@@ -88,7 +90,7 @@ class MiniOViewModel : ViewModel() {
 
         viewModelScope.launch(Dispatchers.IO) {
             val conn = Connection(normalizedUrl, token.trim())
-            val client = MiniOApiClient(conn)
+            val client = MiniOApiClientImpl(conn)
             val healthRes = client.checkHealth()
 
             if (healthRes.isSuccess) {
@@ -97,6 +99,9 @@ class MiniOViewModel : ViewModel() {
                 val modelsRes = client.getModels()
 
                 withContext(Dispatchers.Main) {
+                    val profile = ConnectionProfile(name = name, url = normalizedUrl, token = token.trim())
+                    connectionProfiles = (connectionProfiles.filter { it.url != normalizedUrl } + profile)
+                    activeConnectionId = profile.id
                     connection = conn
                     apiClient = client
                     isConnected = true
@@ -121,14 +126,36 @@ class MiniOViewModel : ViewModel() {
         }
     }
 
-    fun disconnect() {
+    fun disconnect(profileId: String? = null) {
+        if (profileId != null && activeConnectionId != profileId) return
         streamingJob?.cancel()
         apiClient = null
         connection = null
         isConnected = false
+        activeConnectionId = null
         fileItems = emptyList()
         activeFilePath = null
         isChatStreaming = false
+    }
+
+    fun switchProfile(profileId: String) {
+        val profile = connectionProfiles.find { it.id == profileId } ?: return
+        disconnect()
+        connect(profile.url, profile.token, profile.name) { _ -> }
+    }
+
+    fun pingServer() {
+        val client = apiClient ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            val res = client.checkHealth()
+            withContext(Dispatchers.Main) {
+                if (res.isSuccess) {
+                    showToast("Server is reachable")
+                } else {
+                    showToast("Server unreachable: ${res.exceptionOrNull()?.message}")
+                }
+            }
+        }
     }
 
     fun refreshDiagnostics() {

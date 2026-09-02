@@ -50,9 +50,26 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+import java.io.File
+import kotlinx.coroutines.delay
+
+fun isDeviceRooted(): Boolean {
+    val paths = arrayOf("/system/app/Superuser.apk", "/sbin/su", "/system/bin/su", "/system/xbin/su", "/data/local/xbin/su", "/data/local/bin/su", "/system/sd/xbin/su", "/system/bin/failsafe/su", "/data/local/su")
+    for (path in paths) {
+        if (File(path).exists()) return true
+    }
+    return false
+}
+
 @Composable
 fun MiniOMainApp(vm: MiniOViewModel = viewModel()) {
     val context = LocalContext.current
+
+    LaunchedEffect(Unit) {
+        if (isDeviceRooted()) {
+            vm.showToast("Warning: Device appears to be rooted.")
+        }
+    }
 
     DisposableEffect(Unit) {
         val voiceMgr = VoiceAssistantManager(
@@ -98,6 +115,7 @@ fun MiniOMainApp(vm: MiniOViewModel = viewModel()) {
 
     var urlInput by remember { mutableStateOf(savedUrl) }
     var tokenInput by remember { mutableStateOf(savedToken) }
+    var nameInput by remember { mutableStateOf("Default") }
 
     // Auto toast dismiss
     LaunchedEffect(vm.notificationMessage) {
@@ -118,10 +136,12 @@ fun MiniOMainApp(vm: MiniOViewModel = viewModel()) {
                     onUrlChange = { urlInput = it },
                     token = tokenInput,
                     onTokenChange = { tokenInput = it },
+                    name = nameInput,
+                    onNameChange = { nameInput = it },
                     isLoading = vm.isConnecting,
                     errorMessage = vm.connectionError,
                     onConnect = {
-                        vm.connect(urlInput, tokenInput) { conn ->
+                        vm.connect(urlInput, tokenInput, nameInput) { conn ->
                             prefs?.edit()
                                 ?.putString("url", conn.url)
                                 ?.putString("token", conn.token)

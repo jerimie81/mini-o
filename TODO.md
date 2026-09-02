@@ -16,12 +16,12 @@ write+delete, so docs and scope are out of sync with the code.
 
 ## 1. Architecture & Testability
 
-1. Extract an `ApiClient` interface from `MiniOApiClient` so the ViewModel depends on an abstraction, not a concrete OkHttp class.
+1. [x] Extract an `ApiClient` interface from `MiniOApiClient` so the ViewModel depends on an abstraction, not a concrete OkHttp class.
 2. Introduce a `Repository` layer between `MiniOViewModel` and `MiniOApiClient` to isolate networking from UI state.
 3. Add a DI graph (Hilt or manual factory) instead of `viewModel()` default construction — `MiniOViewModel` currently can't be unit-tested without a real network.
 4. Move `EncryptedSharedPreferences` connection storage out of `MainActivity`/`MiniOMainApp` composable into a dedicated `ConnectionStore` class.
 5. Split `MiniOViewModel` (currently one 400-line god-object covering connection, chat, files, editor) into `ChatViewModel`, `WorkspaceViewModel`, `ConnectionViewModel` sharing a scoped store.
-6. Replace raw `JSONObject`/`JSONArray` parsing in `MiniOApiClient` with `kotlinx.serialization` or Moshi data classes to remove manual `optString`/`optDouble` boilerplate and silent type-coercion bugs.
+6. [x] Replace raw `JSONObject`/`JSONArray` parsing in `MiniOApiClient` with `kotlinx.serialization` or Moshi data classes to remove manual `optString`/`optDouble` boilerplate and silent type-coercion bugs.
 7. Add sealed-class `ApiError` types (network, auth, server, parse) instead of stringly-typed `Exception(message)` — screens currently just show raw exception text.
 8. Introduce a `Dispatchers` provider (test dispatcher injection) so coroutine-heavy VM logic is unit-testable.
 9. Add explicit `Result`-based cancellation handling in `streamChat` — a caller cancel doesn't currently close the OkHttp stream/socket.
@@ -29,7 +29,7 @@ write+delete, so docs and scope are out of sync with the code.
 
 ## 2. Networking Reliability
 
-11. Add automatic retry with exponential backoff for `checkHealth`, `getPlatform`, `getModels`, `getDiagnostics` — a single transient failure currently just drops the value.
+11. [x] Add automatic retry with exponential backoff for `checkHealth`, `getPlatform`, `getModels`, `getDiagnostics` — a single transient failure currently just drops the value.
 12. Add a global network-reachability observer (`ConnectivityManager.NetworkCallback`) and surface an offline banner across all screens.
 13. Auto-reconnect the session when the app returns to foreground after being backgrounded with a live connection.
 14. Add configurable request timeouts in Settings instead of the hardcoded 10s/60s/30s in `MiniOApiClient`.
@@ -47,20 +47,20 @@ write+delete, so docs and scope are out of sync with the code.
 23. Add biometric/device-credential gate (`BiometricPrompt`) before revealing the stored server token in Settings or before app resume, since the token unlocks full file read/write/delete on the host.
 24. Redact the bearer token in any logs — confirm no `Log.d`/stack trace path ever prints `connection.token`.
 25. Add token expiry/rotation support instead of storing a single indefinite token in `EncryptedSharedPreferences`.
-26. Validate/sanitize file paths client-side before sending to `/api/files/*` to fail fast on path traversal attempts (`..`), even though the server should also enforce this.
+26. [x] Validate/sanitize file paths client-side before sending to `/api/files/*` to fail fast on path traversal attempts (`..`), even though the server should also enforce this.
 27. Add a "Forget this server" action that wipes `EncryptedSharedPreferences` and any cached files/chat history, not just in-memory state.
 28. Warn the user in-app when connecting over plain `http://` to a non-LAN address (currently only documented in the README, not enforced or warned about in the UI).
 29. Disable screenshots/screen recording on the `ConnectScreen` and `SettingsScreen` (`FLAG_SECURE`) since token entry happens there.
-30. Add root/debugger detection warning (soft, non-blocking) given the app handles a credential with full filesystem-adjacent access.
+30. [x] Add root/debugger detection warning (soft, non-blocking) given the app handles a credential with full filesystem-adjacent access.
 
 ## 4. Connection Management
 
-31. Support multiple saved server profiles (home PC, laptop, etc.) with a picker, not just one `url`/`token` pair.
+31. [x] Support multiple saved server profiles (home PC, laptop, etc.) with a picker, not just one `url`/`token` pair.
 32. Add a QR-code "scan to connect" flow that encodes URL+token, generated server-side, to avoid manual typing on mobile.
 33. Show a persistent connection-status indicator (latency, last-seen) somewhere visible across all four tabs, not just implicitly via `vm.isConnected`.
-34. Add a manual "Disconnect" action in Settings — `vm.disconnect()` exists in the ViewModel but no UI currently calls it.
+34. [x] Add a manual "Disconnect" action in Settings — `vm.disconnect()` exists in the ViewModel but no UI currently calls it.
 35. Validate the URL format more thoroughly in `connect()` (currently only checks `http(s)://` prefix — no host/port sanity check, no trailing-path handling beyond `removeSuffix("/")`).
-36. Add a connection test/"ping" button on `ConnectScreen` that doesn't require completing a full connect.
+36. [x] Add a connection test/"ping" button on `ConnectScreen` that doesn't require completing a full connect.
 37. Persist and show the last successful connection time.
 38. Handle the case where `getModels()`/`getPlatform()` succeed but return empty/malformed data without silently leaving `platform`/`availableModels` in a stale state.
 39. Add pull-to-refresh on `ConnectScreen`'s recent-connections list (once item 31 exists).
