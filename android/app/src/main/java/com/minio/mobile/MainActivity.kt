@@ -3,6 +3,7 @@ package com.minio.mobile
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -28,20 +29,29 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.security.crypto.EncryptedSharedPreferences
-import androidx.security.crypto.MasterKey
-import com.minio.mobile.data.Connection
+import com.minio.mobile.data.ConnectionProfile
 import com.minio.mobile.data.ScreenTab
 import com.minio.mobile.ui.screens.*
 import com.minio.mobile.ui.theme.*
+import com.minio.mobile.util.ConnectivityObserver
+import com.minio.mobile.util.NetworkStatus
 import com.minio.mobile.viewmodel.MiniOViewModel
+import com.minio.mobile.viewmodel.MiniOViewModelFactory
 import com.minio.mobile.voice.VoiceAssistantManager
 import com.minio.mobile.voice.VoiceState
 import kotlinx.coroutines.delay
+import java.io.File
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        // FLAG_SECURE to prevent screenshots/recording on credential entry screens
+        window.setFlags(
+            WindowManager.LayoutParams.FLAG_SECURE,
+            WindowManager.LayoutParams.FLAG_SECURE
+        )
+
         setContent {
             MiniOTheme {
                 MiniOMainApp()
@@ -50,11 +60,18 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-import java.io.File
-import kotlinx.coroutines.delay
-
 fun isDeviceRooted(): Boolean {
-    val paths = arrayOf("/system/app/Superuser.apk", "/sbin/su", "/system/bin/su", "/system/xbin/su", "/data/local/xbin/su", "/data/local/bin/su", "/system/sd/xbin/su", "/system/bin/failsafe/su", "/data/local/su")
+    val paths = arrayOf(
+        "/system/app/Superuser.apk",
+        "/sbin/su",
+        "/system/bin/su",
+        "/system/xbin/su",
+        "/data/local/xbin/su",
+        "/data/local/bin/su",
+        "/system/sd/xbin/su",
+        "/system/bin/failsafe/su",
+        "/data/local/su"
+    )
     for (path in paths) {
         if (File(path).exists()) return true
     }
@@ -62,12 +79,26 @@ fun isDeviceRooted(): Boolean {
 }
 
 @Composable
-fun MiniOMainApp(vm: MiniOViewModel = viewModel()) {
+fun MiniOMainApp() {
     val context = LocalContext.current
+    val vm: MiniOViewModel = viewModel(factory = MiniOViewModelFactory(context))
 
     LaunchedEffect(Unit) {
         if (isDeviceRooted()) {
-            vm.showToast("Warning: Device appears to be rooted.")
+            vm.showToast("Warning: Root or elevated privileges detected on device.")
+        }
+    }
+
+    // Network reachability listener
+    LaunchedEffect(Unit) {
+        val observer = ConnectivityObserver(context)
+        observer.observe().collect { status ->
+            vm.isOffline = (status != NetworkStatus.AVAILABLE)
+            if (vm.isOffline) {
+                vm.showToast("Offline mode: Internet/LAN connection lost")
+            } else {
+                vm.showToast("Network restored")
+            }
         }
     }
 
@@ -91,31 +122,14 @@ fun MiniOMainApp(vm: MiniOViewModel = viewModel()) {
         if (isGranted) {
             vm.toggleVoice()
         } else {
-            vm.showToast("Microphone permission is needed for voice chat.")
+            vm.showToast("Microphone permission is required for voice chat.")
         }
     }
 
-    val prefs = remember {
-        runCatching {
-            val key = MasterKey.Builder(context)
-                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-                .build()
-            EncryptedSharedPreferences.create(
-                context,
-                "mini_o_connection",
-                key,
-                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-            )
-        }.getOrNull()
-    }
-
-    val savedUrl = prefs?.getString("url", "") ?: ""
-    val savedToken = prefs?.getString("token", "") ?: ""
-
-    var urlInput by remember { mutableStateOf(savedUrl) }
-    var tokenInput by remember { mutableStateOf(savedToken) }
-    var nameInput by remember { mutableStateOf("Default") }
+    val activeProfile = vm.connectionProfiles.find { it.id == vm.activeConnectionId }
+    var urlInput by remember(activeProfile) { mutableStateOf(activeProfile?.url ?: "http://10.0.2.2:3000") }
+    var tokenInput by remember(activeProfile) { mutableStateOf(activeProfile?.token ?: "") }
+    var nameInput by remember(activeProfile) { mutableStateOf(activeProfile?.name ?: "Default") }
 
     // Auto toast dismiss
     LaunchedEffect(vm.notificationMessage) {
@@ -141,13 +155,9 @@ fun MiniOMainApp(vm: MiniOViewModel = viewModel()) {
                     isLoading = vm.isConnecting,
                     errorMessage = vm.connectionError,
                     onConnect = {
-                        vm.connect(urlInput, tokenInput, nameInput) { conn ->
-                            prefs?.edit()
-                                ?.putString("url", conn.url)
-                                ?.putString("token", conn.token)
-                                ?.apply()
-                        }
-                    }
+                        vm.connect(urlInput, tokenInput, nameInput)
+                    },
+                    vm = vm
                 )
             } else if (vm.activeFilePath != null) {
                 FileEditorScreen(vm = vm)
@@ -159,16 +169,10 @@ fun MiniOMainApp(vm: MiniOViewModel = viewModel()) {
                             tonalElevation = 8.dp,
                             modifier = Modifier.height(76.dp)
                         ) {
-                            // 1. Chat
                             NavigationBarItem(
                                 selected = vm.currentTab == ScreenTab.CHAT,
                                 onClick = { vm.currentTab = ScreenTab.CHAT },
-                                icon = {
-                                    Icon(
-                                        Icons.Rounded.ChatBubbleOutline,
-                                        contentDescription = "Chat"
-                                    )
-                                },
+                                icon = { Icon(Icons.Rounded.ChatBubbleOutline, contentDescription = "Chat") },
                                 label = { Text("Chat", fontSize = 11.sp, fontWeight = FontWeight.Medium) },
                                 colors = NavigationBarItemDefaults.colors(
                                     selectedIconColor = PrimaryBlue,
@@ -179,16 +183,10 @@ fun MiniOMainApp(vm: MiniOViewModel = viewModel()) {
                                 )
                             )
 
-                            // 2. Files
                             NavigationBarItem(
                                 selected = vm.currentTab == ScreenTab.WORKSPACE,
                                 onClick = { vm.currentTab = ScreenTab.WORKSPACE },
-                                icon = {
-                                    Icon(
-                                        Icons.Rounded.FolderOpen,
-                                        contentDescription = "Workspace"
-                                    )
-                                },
+                                icon = { Icon(Icons.Rounded.FolderOpen, contentDescription = "Workspace") },
                                 label = { Text("Files", fontSize = 11.sp, fontWeight = FontWeight.Medium) },
                                 colors = NavigationBarItemDefaults.colors(
                                     selectedIconColor = PrimaryBlue,
@@ -199,7 +197,6 @@ fun MiniOMainApp(vm: MiniOViewModel = viewModel()) {
                                 )
                             )
 
-                            // 3. DEAD CENTER: Mic / Voice Button
                             CenterVoiceNavButton(
                                 voiceState = vm.voiceState,
                                 onClick = {
@@ -216,16 +213,10 @@ fun MiniOMainApp(vm: MiniOViewModel = viewModel()) {
                                 }
                             )
 
-                            // 4. System
                             NavigationBarItem(
                                 selected = vm.currentTab == ScreenTab.DIAGNOSTICS,
                                 onClick = { vm.currentTab = ScreenTab.DIAGNOSTICS },
-                                icon = {
-                                    Icon(
-                                        Icons.Rounded.MonitorHeart,
-                                        contentDescription = "System"
-                                    )
-                                },
+                                icon = { Icon(Icons.Rounded.MonitorHeart, contentDescription = "System") },
                                 label = { Text("System", fontSize = 11.sp, fontWeight = FontWeight.Medium) },
                                 colors = NavigationBarItemDefaults.colors(
                                     selectedIconColor = PrimaryBlue,
@@ -236,16 +227,10 @@ fun MiniOMainApp(vm: MiniOViewModel = viewModel()) {
                                 )
                             )
 
-                            // 5. Settings
                             NavigationBarItem(
                                 selected = vm.currentTab == ScreenTab.SETTINGS,
                                 onClick = { vm.currentTab = ScreenTab.SETTINGS },
-                                icon = {
-                                    Icon(
-                                        Icons.Rounded.Settings,
-                                        contentDescription = "Settings"
-                                    )
-                                },
+                                icon = { Icon(Icons.Rounded.Settings, contentDescription = "Settings") },
                                 label = { Text("Settings", fontSize = 11.sp, fontWeight = FontWeight.Medium) },
                                 colors = NavigationBarItemDefaults.colors(
                                     selectedIconColor = PrimaryBlue,
@@ -273,8 +258,28 @@ fun MiniOMainApp(vm: MiniOViewModel = viewModel()) {
                 }
             }
 
+            // Global Offline Banner
+            if (vm.isOffline) {
+                Surface(
+                    color = DangerRed,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.TopCenter)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(vertical = 4.dp, horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Rounded.WifiOff, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Device is offline. Check network connection.", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+
             // Global Notification Toast
-            if (vm.notificationMessage != null) {
+            if (vm.notificationMessage != null && !vm.isOffline) {
                 Surface(
                     color = SurfaceRaised,
                     shape = RoundedCornerShape(10.dp),
@@ -378,10 +383,10 @@ fun RowScope.CenterVoiceNavButton(
                     modifier = Modifier.fillMaxSize()
                 ) {
                     when (voiceState) {
-                        VoiceState.LISTENING -> Icon(Icons.Rounded.Mic, contentDescription = null, tint = Color.White, modifier = Modifier.size(22.dp))
-                        VoiceState.SPEAKING -> Icon(Icons.Rounded.GraphicEq, contentDescription = null, tint = Color(0xFF002A24), modifier = Modifier.size(22.dp))
+                        VoiceState.LISTENING -> Icon(Icons.Rounded.Mic, contentDescription = "Listening", tint = Color.White, modifier = Modifier.size(22.dp))
+                        VoiceState.SPEAKING -> Icon(Icons.Rounded.GraphicEq, contentDescription = "Speaking", tint = Color(0xFF002A24), modifier = Modifier.size(22.dp))
                         VoiceState.PROCESSING -> CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = Color.White)
-                        VoiceState.IDLE -> Icon(Icons.Rounded.Mic, contentDescription = null, tint = Color(0xFF001A4E), modifier = Modifier.size(22.dp))
+                        VoiceState.IDLE -> Icon(Icons.Rounded.Mic, contentDescription = "Voice Input", tint = Color(0xFF001A4E), modifier = Modifier.size(22.dp))
                     }
                 }
             }
@@ -407,4 +412,3 @@ fun RowScope.CenterVoiceNavButton(
         )
     }
 }
-

@@ -33,3 +33,6 @@ PROJECT_PROGRESS.md
 .idea/
 .vscode/
 *.swp
+
+node_modules/
+dist/

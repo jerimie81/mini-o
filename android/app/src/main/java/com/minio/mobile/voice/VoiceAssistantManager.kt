@@ -57,13 +57,6 @@ class VoiceAssistantManager(
                             }
                         }
 
-                        @Deprecated("Deprecated in Java")
-                        override fun onError(utteranceId: String?) {
-                            if (currentState == VoiceState.SPEAKING) {
-                                currentState = VoiceState.IDLE
-                            }
-                        }
-
                         override fun onError(utteranceId: String?, errorCode: Int) {
                             if (currentState == VoiceState.SPEAKING) {
                                 currentState = VoiceState.IDLE

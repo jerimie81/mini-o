@@ -1,28 +1,45 @@
 package com.minio.mobile.viewmodel
 
+import android.content.Context
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.minio.mobile.data.*
+import com.minio.mobile.util.*
 import com.minio.mobile.voice.VoiceAssistantManager
 import com.minio.mobile.voice.VoiceState
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-class MiniOViewModel : ViewModel() {
+class MiniOViewModel(
+    val repository: MiniORepository,
+    val dispatchers: DispatchersProvider = DefaultDispatchersProvider()
+) : ViewModel() {
+
     var connectionProfiles by mutableStateOf<List<ConnectionProfile>>(emptyList()); private set
     var activeConnectionId by mutableStateOf<String?>(null); private set
     var connection by mutableStateOf<Connection?>(null); private set
     var isConnected by mutableStateOf(false); private set
     var isConnecting by mutableStateOf(false); private set
     var connectionError by mutableStateOf<String?>(null); private set
+    var lastConnectionTime by mutableStateOf(0L); private set
+
+    // LAN & mDNS Discovery State
+    var isScanningLan by mutableStateOf(false); private set
+    var discoveredServers by mutableStateOf<List<DiscoveredServer>>(emptyList()); private set
+    var scanProgress by mutableStateOf(0f); private set
+    private var scanJob: Job? = null
+    private var nsdJob: Job? = null
 
     var currentTab by mutableStateOf(ScreenTab.CHAT)
     var notificationMessage by mutableStateOf<String?>(null); private set
+    var isOffline by mutableStateOf(false)
+    var themeMode by mutableStateOf("SYSTEM")
 
     // Voice State
     var voiceState by mutableStateOf(VoiceState.IDLE)
@@ -30,6 +47,7 @@ class MiniOViewModel : ViewModel() {
     var isVoiceOutputEnabled by mutableStateOf(true)
     var wasLastInputVoice by mutableStateOf(false); private set
     var voiceAssistantManager: VoiceAssistantManager? = null
+    var taskNotificationManager: TaskNotificationManager? = null
 
     // Server Info
     var health by mutableStateOf<ServerHealth?>(null); private set
@@ -38,18 +56,23 @@ class MiniOViewModel : ViewModel() {
     var availableModels by mutableStateOf<List<ModelInfo>>(emptyList()); private set
     var selectedModel by mutableStateOf("minimax-m3:cloud")
 
-    // Chat State
+    // Chat State & Threads
+    var threads by mutableStateOf<List<ConversationThread>>(emptyList()); private set
+    var activeThreadId by mutableStateOf<String?>(null); private set
     var chatMessages by mutableStateOf<List<ChatMessage>>(
         listOf(
             ChatMessage(
                 role = "assistant",
-                content = "Welcome to **Mini-O Mobile**! I am connected to your local AI workspace on your PC. You can chat, view files, test prompts, and edit `AGENT.md`."
+                content = "Welcome to **Mini-O Mobile**! I am connected to your local AI workspace on your PC."
             )
         )
     ); private set
     var chatInput by mutableStateOf("")
     var isChatStreaming by mutableStateOf(false); private set
     var activeToolNotification by mutableStateOf<String?>(null); private set
+    var streamTokenCount by mutableStateOf(0); private set
+    var streamStartTime by mutableStateOf(0L); private set
+    var tokensPerSec by mutableStateOf(0.0); private set
     private var streamingJob: Job? = null
 
     // Workspace & Files State
@@ -58,6 +81,7 @@ class MiniOViewModel : ViewModel() {
     var fileSearchQuery by mutableStateOf("")
     var isFilesLoading by mutableStateOf(false); private set
     var filesError by mutableStateOf<String?>(null); private set
+    var selectedFileItems by mutableStateOf<Set<String>>(emptySet())
 
     // File Editor State
     var activeFilePath by mutableStateOf<String?>(null); private set
@@ -67,8 +91,33 @@ class MiniOViewModel : ViewModel() {
     var isEditorReadOnly by mutableStateOf(false)
     var isSavingFile by mutableStateOf(false); private set
     var isEditorLoading by mutableStateOf(false); private set
+    val isEditorDirty: Boolean get() = activeFilePath != null && editorText != editorOriginalContent
 
-    private var apiClient: MiniOApiClient? = null
+    init {
+        loadSettingsAndProfiles()
+    }
+
+    private fun loadSettingsAndProfiles() {
+        connectionProfiles = repository.connectionStore.getProfiles()
+        activeConnectionId = repository.connectionStore.getActiveProfileId()
+        lastConnectionTime = repository.connectionStore.getLastConnectionTime()
+        themeMode = repository.connectionStore.getThemePreference()
+
+        repository.connectionStore.getSelectedModel()?.let {
+            if (it.isNotBlank()) selectedModel = it
+        }
+
+        val loadedThreads = repository.chatStorage.getThreads()
+        if (loadedThreads.isNotEmpty()) {
+            threads = loadedThreads
+            val activeId = repository.chatStorage.getActiveThreadId() ?: loadedThreads.first().id
+            activeThreadId = activeId
+            val active = loadedThreads.find { it.id == activeId }
+            if (active != null && active.messages.isNotEmpty()) {
+                chatMessages = active.messages
+            }
+        }
+    }
 
     fun showToast(msg: String) {
         notificationMessage = msg
@@ -78,7 +127,79 @@ class MiniOViewModel : ViewModel() {
         notificationMessage = null
     }
 
-    fun connect(url: String, token: String, name: String = "Default", onConnected: (Connection) -> Unit) {
+    fun setTheme(mode: String) {
+        themeMode = mode
+        repository.connectionStore.saveThemePreference(mode)
+    }
+
+    fun startMdnsDiscovery(context: Context) {
+        nsdJob?.cancel()
+        val nsd = NsdServerDiscovery(context)
+        nsdJob = viewModelScope.launch(dispatchers.io) {
+            nsd.discoverServices().collect { server ->
+                withContext(dispatchers.main) {
+                    if (discoveredServers.none { it.url == server.url }) {
+                        discoveredServers = discoveredServers + server
+                        showToast("mDNS Zero-Config: Found ${server.name}")
+                    }
+                }
+            }
+        }
+    }
+
+    fun parseAndApplyQrPayload(qrText: String, onParsed: (ConnectionProfile) -> Unit) {
+        val profile = QrPairingHelper.parsePairingPayload(qrText)
+        if (profile != null) {
+            onParsed(profile)
+            showToast("Imported pairing config for ${profile.name}")
+        } else {
+            showToast("Invalid QR pairing code format")
+        }
+    }
+
+    fun scanLanServers(context: Context) {
+        if (isScanningLan) return
+        isScanningLan = true
+        discoveredServers = emptyList()
+        scanProgress = 0f
+
+        startMdnsDiscovery(context)
+
+        val scanner = LanServerScanner(context)
+        scanJob = viewModelScope.launch(dispatchers.io) {
+            scanner.scanSubnet(
+                onProgress = { scanned, total ->
+                    viewModelScope.launch(dispatchers.main) {
+                        scanProgress = scanned.toFloat() / total.toFloat()
+                    }
+                }
+            ).collect { server ->
+                withContext(dispatchers.main) {
+                    if (discoveredServers.none { it.url == server.url }) {
+                        discoveredServers = discoveredServers + server
+                        showToast("Found Mini-O server: ${server.name}")
+                    }
+                }
+            }
+
+            withContext(dispatchers.main) {
+                isScanningLan = false
+                if (discoveredServers.isEmpty()) {
+                    showToast("No Mini-O servers found on local WiFi network")
+                }
+            }
+        }
+    }
+
+    fun stopLanScan() {
+        scanJob?.cancel()
+        scanJob = null
+        nsdJob?.cancel()
+        nsdJob = null
+        isScanningLan = false
+    }
+
+    fun connect(url: String, token: String, name: String = "Default", onConnected: (Connection) -> Unit = {}) {
         val normalizedUrl = url.trim().removeSuffix("/")
         if (!normalizedUrl.startsWith("http://") && !normalizedUrl.startsWith("https://")) {
             connectionError = "Please enter a valid URL starting with http:// or https://"
@@ -88,28 +209,40 @@ class MiniOViewModel : ViewModel() {
         isConnecting = true
         connectionError = null
 
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(dispatchers.io) {
             val conn = Connection(normalizedUrl, token.trim())
-            val client = MiniOApiClientImpl(conn)
-            val healthRes = client.checkHealth()
+            repository.initClient(
+                conn,
+                connectTimeoutSec = repository.connectionStore.getConnectTimeout().toLong(),
+                readTimeoutSec = repository.connectionStore.getReadTimeout().toLong()
+            )
 
+            val healthRes = repository.checkHealth()
             if (healthRes.isSuccess) {
                 val h = healthRes.getOrNull()
-                val platRes = client.getPlatform()
-                val modelsRes = client.getModels()
+                val platRes = repository.getPlatform()
+                val modelsRes = repository.getModels()
+                val now = System.currentTimeMillis()
 
-                withContext(Dispatchers.Main) {
+                withContext(dispatchers.main) {
                     val profile = ConnectionProfile(name = name, url = normalizedUrl, token = token.trim())
-                    connectionProfiles = (connectionProfiles.filter { it.url != normalizedUrl } + profile)
+                    val updatedProfiles = (connectionProfiles.filter { it.url != normalizedUrl } + profile)
+                    connectionProfiles = updatedProfiles
+                    repository.connectionStore.saveProfiles(updatedProfiles)
+
                     activeConnectionId = profile.id
+                    repository.connectionStore.saveActiveProfileId(profile.id)
+
                     connection = conn
-                    apiClient = client
                     isConnected = true
                     health = h
                     platform = platRes.getOrNull()
+                    lastConnectionTime = now
+                    repository.connectionStore.saveLastConnectionTime(now)
+
                     val models = modelsRes.getOrNull() ?: emptyList()
                     availableModels = models
-                    if (models.isNotEmpty()) {
+                    if (models.isNotEmpty() && repository.connectionStore.getSelectedModel() == null) {
                         selectedModel = models.first().name
                     }
                     isConnecting = false
@@ -118,8 +251,9 @@ class MiniOViewModel : ViewModel() {
                     refreshDiagnostics()
                 }
             } else {
-                withContext(Dispatchers.Main) {
-                    connectionError = healthRes.exceptionOrNull()?.message ?: "Could not connect to Mini-O server"
+                withContext(dispatchers.main) {
+                    val err = healthRes.exceptionOrNull()
+                    connectionError = if (err is ApiError) err.toUserMessage() else (err?.message ?: "Could not connect to Mini-O server")
                     isConnecting = false
                 }
             }
@@ -129,7 +263,7 @@ class MiniOViewModel : ViewModel() {
     fun disconnect(profileId: String? = null) {
         if (profileId != null && activeConnectionId != profileId) return
         streamingJob?.cancel()
-        apiClient = null
+        repository.disconnect()
         connection = null
         isConnected = false
         activeConnectionId = null
@@ -138,33 +272,40 @@ class MiniOViewModel : ViewModel() {
         isChatStreaming = false
     }
 
-    fun switchProfile(profileId: String) {
-        val profile = connectionProfiles.find { it.id == profileId } ?: return
-        disconnect()
-        connect(profile.url, profile.token, profile.name) { _ -> }
+    fun forgetServer(profileId: String) {
+        val updated = connectionProfiles.filter { it.id != profileId }
+        connectionProfiles = updated
+        repository.connectionStore.saveProfiles(updated)
+        if (activeConnectionId == profileId) {
+            disconnect()
+        }
+        showToast("Server profile removed")
     }
 
     fun pingServer() {
-        val client = apiClient ?: return
-        viewModelScope.launch(Dispatchers.IO) {
-            val res = client.checkHealth()
-            withContext(Dispatchers.Main) {
+        if (!isConnected) return
+        viewModelScope.launch(dispatchers.io) {
+            val startTime = System.currentTimeMillis()
+            val res = repository.checkHealth()
+            val elapsed = System.currentTimeMillis() - startTime
+            withContext(dispatchers.main) {
                 if (res.isSuccess) {
-                    showToast("Server is reachable")
+                    showToast("Server reachable (${elapsed}ms)")
                 } else {
-                    showToast("Server unreachable: ${res.exceptionOrNull()?.message}")
+                    val msg = res.exceptionOrNull()?.let { if (it is ApiError) it.toUserMessage() else it.message }
+                    showToast("Server unreachable: $msg")
                 }
             }
         }
     }
 
     fun refreshDiagnostics() {
-        val client = apiClient ?: return
-        viewModelScope.launch(Dispatchers.IO) {
-            val diagRes = client.getDiagnostics()
-            val platRes = client.getPlatform()
-            val modRes = client.getModels()
-            withContext(Dispatchers.Main) {
+        if (!isConnected) return
+        viewModelScope.launch(dispatchers.io) {
+            val diagRes = repository.getDiagnostics()
+            val platRes = repository.getPlatform()
+            val modRes = repository.getModels()
+            withContext(dispatchers.main) {
                 diagnostics = diagRes.getOrNull()
                 platform = platRes.getOrNull()
                 if (modRes.isSuccess) {
@@ -174,11 +315,19 @@ class MiniOViewModel : ViewModel() {
         }
     }
 
+    fun selectModel(modelName: String) {
+        selectedModel = modelName
+        repository.connectionStore.saveSelectedModel(modelName)
+    }
+
     // Chat Operations
     fun sendChatMessage(promptText: String = chatInput, fromVoice: Boolean = false) {
         val prompt = promptText.trim()
         if (prompt.isEmpty() || isChatStreaming) return
-        val client = apiClient ?: return
+        if (!isConnected) {
+            showToast("Not connected to server")
+            return
+        }
 
         wasLastInputVoice = fromVoice
         voiceAssistantManager?.stopSpeaking()
@@ -192,21 +341,30 @@ class MiniOViewModel : ViewModel() {
             isStreaming = true
         )
 
-        chatMessages = chatMessages + userMessage + initialAssistantMessage
+        val updatedMessages = chatMessages + userMessage + initialAssistantMessage
+        chatMessages = updatedMessages
         chatInput = ""
         isChatStreaming = true
         activeToolNotification = null
+        streamTokenCount = 0
+        streamStartTime = System.currentTimeMillis()
 
-        val historyForApi = chatMessages.filter { it.id != assistantMessageId }
+        saveCurrentThread()
 
-        streamingJob = viewModelScope.launch(Dispatchers.IO) {
-            client.streamChat(
+        val historyForApi = updatedMessages.filter { it.id != assistantMessageId }
+
+        streamingJob = viewModelScope.launch(dispatchers.io) {
+            repository.streamChat(
                 model = selectedModel,
                 messages = historyForApi,
-                conversationId = null,
+                conversationId = activeThreadId,
                 useTools = true,
                 onToken = { tokenChunk ->
-                    viewModelScope.launch(Dispatchers.Main) {
+                    viewModelScope.launch(dispatchers.main) {
+                        streamTokenCount++
+                        val elapsedSec = (System.currentTimeMillis() - streamStartTime) / 1000.0
+                        if (elapsedSec > 0) tokensPerSec = streamTokenCount / elapsedSec
+
                         chatMessages = chatMessages.map { msg ->
                             if (msg.id == assistantMessageId) {
                                 msg.copy(content = msg.content + tokenChunk)
@@ -215,17 +373,17 @@ class MiniOViewModel : ViewModel() {
                     }
                 },
                 onToolCall = { name, _ ->
-                    viewModelScope.launch(Dispatchers.Main) {
+                    viewModelScope.launch(dispatchers.main) {
                         activeToolNotification = "Running tool: $name"
                     }
                 },
                 onToolResult = { name, _ ->
-                    viewModelScope.launch(Dispatchers.Main) {
+                    viewModelScope.launch(dispatchers.main) {
                         activeToolNotification = "Tool $name finished"
                     }
                 },
                 onDone = {
-                    viewModelScope.launch(Dispatchers.Main) {
+                    viewModelScope.launch(dispatchers.main) {
                         var finalAssistantText = ""
                         chatMessages = chatMessages.map { msg ->
                             if (msg.id == assistantMessageId) {
@@ -235,15 +393,20 @@ class MiniOViewModel : ViewModel() {
                         }
                         isChatStreaming = false
                         activeToolNotification = null
+                        saveCurrentThread()
 
-                        // Auto speak response when prompt was triggered by voice
+                        taskNotificationManager?.showTaskCompleteNotification(
+                            title = "Mini-O AI Response Complete",
+                            message = finalAssistantText.take(60)
+                        )
+
                         if (wasLastInputVoice && isVoiceOutputEnabled && finalAssistantText.isNotBlank()) {
                             voiceAssistantManager?.speak(finalAssistantText)
                         }
                     }
                 },
                 onError = { err ->
-                    viewModelScope.launch(Dispatchers.Main) {
+                    viewModelScope.launch(dispatchers.main) {
                         val errMsg = "⚠️ Error: $err"
                         chatMessages = chatMessages.map { msg ->
                             if (msg.id == assistantMessageId) {
@@ -255,6 +418,7 @@ class MiniOViewModel : ViewModel() {
                         }
                         isChatStreaming = false
                         activeToolNotification = null
+                        saveCurrentThread()
 
                         if (wasLastInputVoice && isVoiceOutputEnabled) {
                             voiceAssistantManager?.speak("Sorry, an error occurred while generating a response.")
@@ -263,6 +427,54 @@ class MiniOViewModel : ViewModel() {
                 }
             )
         }
+    }
+
+    fun regenerateLastResponse() {
+        val lastAssistant = chatMessages.lastOrNull { it.role == "assistant" && !it.isStreaming } ?: return
+        chatMessages = chatMessages.filter { it.id != lastAssistant.id }
+        sendChatMessage(chatMessages.lastOrNull { it.role == "user" }?.content ?: return)
+    }
+
+    fun deleteChatMessage(messageId: String) {
+        chatMessages = chatMessages.filter { it.id != messageId }
+        saveCurrentThread()
+    }
+
+    private fun saveCurrentThread() {
+        val activeId = activeThreadId ?: java.util.UUID.randomUUID().toString()
+        activeThreadId = activeId
+        val existingIndex = threads.indexOfFirst { it.id == activeId }
+        val thread = ConversationThread(
+            id = activeId,
+            title = chatMessages.firstOrNull { it.role == "user" }?.content?.take(30) ?: "Conversation",
+            updatedAt = System.currentTimeMillis(),
+            messages = chatMessages
+        )
+        threads = if (existingIndex >= 0) {
+            threads.toMutableList().apply { set(existingIndex, thread) }
+        } else {
+            threads + thread
+        }
+        repository.chatStorage.saveThreads(threads)
+        repository.chatStorage.saveActiveThreadId(activeId)
+    }
+
+    fun createNewThread() {
+        stopChatGeneration()
+        val newThread = ConversationThread()
+        threads = threads + newThread
+        activeThreadId = newThread.id
+        chatMessages = listOf(
+            ChatMessage(
+                role = "assistant",
+                content = "New conversation started. How can I help you?"
+            )
+        )
+        saveCurrentThread()
+    }
+
+    fun clearChat() {
+        createNewThread()
     }
 
     fun onVoiceInput(transcribedText: String) {
@@ -294,31 +506,23 @@ class MiniOViewModel : ViewModel() {
         activeToolNotification = null
     }
 
-    fun clearChat() {
-        stopChatGeneration()
-        chatMessages = listOf(
-            ChatMessage(
-                role = "assistant",
-                content = "Conversation cleared. Ready for your next request."
-            )
-        )
-    }
-
     // Workspace & File Operations
     fun loadFolder(path: String = currentFolder) {
-        val client = apiClient ?: return
+        if (!isConnected) return
         isFilesLoading = true
         filesError = null
 
-        viewModelScope.launch(Dispatchers.IO) {
-            val res = client.listFiles(path, fileSearchQuery)
-            withContext(Dispatchers.Main) {
+        viewModelScope.launch(dispatchers.io) {
+            val res = repository.listFiles(path, fileSearchQuery)
+            withContext(dispatchers.main) {
                 isFilesLoading = false
                 if (res.isSuccess) {
                     currentFolder = path
                     fileItems = res.getOrNull() ?: emptyList()
+                    selectedFileItems = emptySet()
                 } else {
-                    filesError = res.exceptionOrNull()?.message ?: "Failed to list folder"
+                    val err = res.exceptionOrNull()
+                    filesError = if (err is ApiError) err.toUserMessage() else (err?.message ?: "Failed to list folder")
                 }
             }
         }
@@ -339,13 +543,13 @@ class MiniOViewModel : ViewModel() {
     }
 
     fun openFileInEditor(filePath: String) {
-        val client = apiClient ?: return
+        if (!isConnected) return
         isEditorLoading = true
         activeFilePath = filePath
 
-        viewModelScope.launch(Dispatchers.IO) {
-            val res = client.getFileContent(filePath)
-            withContext(Dispatchers.Main) {
+        viewModelScope.launch(dispatchers.io) {
+            val res = repository.getFileContent(filePath)
+            withContext(dispatchers.main) {
                 isEditorLoading = false
                 if (res.isSuccess) {
                     val data = res.getOrNull()!!
@@ -367,12 +571,12 @@ class MiniOViewModel : ViewModel() {
 
     fun saveEditorFile() {
         val path = activeFilePath ?: return
-        val client = apiClient ?: return
+        if (!isConnected) return
         isSavingFile = true
 
-        viewModelScope.launch(Dispatchers.IO) {
-            val res = client.saveFileContent(path, editorText, editorModifiedTimestamp)
-            withContext(Dispatchers.Main) {
+        viewModelScope.launch(dispatchers.io) {
+            val res = repository.saveFileContent(path, editorText, editorModifiedTimestamp)
+            withContext(dispatchers.main) {
                 isSavingFile = false
                 if (res.isSuccess) {
                     val saveInfo = res.getOrNull()
@@ -389,7 +593,7 @@ class MiniOViewModel : ViewModel() {
 
     fun revertEditorChanges() {
         editorText = editorOriginalContent
-        showToast("Reverted to original file content")
+        showToast("Reverted changes")
     }
 
     fun closeEditor() {
@@ -399,12 +603,10 @@ class MiniOViewModel : ViewModel() {
     }
 
     fun createNewFile(fileName: String, initialContent: String = "") {
-        val client = apiClient ?: return
         val targetPath = if (currentFolder == ".") fileName.trim() else "$currentFolder/${fileName.trim()}"
-
-        viewModelScope.launch(Dispatchers.IO) {
-            val res = client.saveFileContent(targetPath, initialContent)
-            withContext(Dispatchers.Main) {
+        viewModelScope.launch(dispatchers.io) {
+            val res = repository.saveFileContent(targetPath, initialContent)
+            withContext(dispatchers.main) {
                 if (res.isSuccess) {
                     showToast("Created $fileName")
                     loadFolder(currentFolder)
@@ -416,11 +618,26 @@ class MiniOViewModel : ViewModel() {
         }
     }
 
+    fun renameFile(oldPath: String, newName: String) {
+        val parent = oldPath.substringBeforeLast('/', "")
+        val targetPath = if (parent.isEmpty()) newName else "$parent/$newName"
+        viewModelScope.launch(dispatchers.io) {
+            val res = repository.performFileOperation("rename", oldPath, targetPath)
+            withContext(dispatchers.main) {
+                if (res.isSuccess) {
+                    showToast("Renamed successfully")
+                    loadFolder(currentFolder)
+                } else {
+                    showToast("Rename failed: ${res.exceptionOrNull()?.message}")
+                }
+            }
+        }
+    }
+
     fun deleteFile(path: String) {
-        val client = apiClient ?: return
-        viewModelScope.launch(Dispatchers.IO) {
-            val res = client.performFileOperation("delete", path)
-            withContext(Dispatchers.Main) {
+        viewModelScope.launch(dispatchers.io) {
+            val res = repository.performFileOperation("delete", path)
+            withContext(dispatchers.main) {
                 if (res.isSuccess) {
                     showToast("Deleted $path")
                     loadFolder(currentFolder)
@@ -429,5 +646,27 @@ class MiniOViewModel : ViewModel() {
                 }
             }
         }
+    }
+
+    fun clearLocalData() {
+        repository.connectionStore.clearAllData()
+        repository.chatStorage.clearHistory()
+        disconnect()
+        showToast("All local data and saved profiles cleared")
+    }
+}
+
+class MiniOViewModelFactory(
+    private val context: Context
+) : ViewModelProvider.Factory {
+    override fun <T : ViewModel> create(modelClass: Class<T>): T {
+        val store = ConnectionStore(context)
+        val chatStorage = ChatStorage(context)
+        val dispatchers = DefaultDispatchersProvider()
+        val repo = MiniORepository(store, chatStorage, dispatchers)
+        @Suppress("UNCHECKED_CAST")
+        val vm = MiniOViewModel(repo, dispatchers)
+        vm.taskNotificationManager = TaskNotificationManager(context)
+        return vm as T
     }
 }

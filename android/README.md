@@ -1,27 +1,32 @@
-# Mini-O Android companion
+# Mini-O Android Companion
 
-This is a native Jetpack Compose client for browsing a Mini-O workspace from an
-Android phone. It intentionally starts with a narrow, read-only surface:
+A native Jetpack Compose mobile client for connecting to a Mini-O local AI workspace host from an Android device.
 
-- encrypted server URL and bearer-token storage;
-- health-checked connection setup;
-- approved-folder browsing with breadcrumbs and search;
-- text-file viewing with scrolling;
-- no file upload, remote shell, or model-management controls.
+## Core Capabilities
 
-Open this directory in Android Studio and run the `app` configuration. The
-project requires Android Studio's standard Gradle sync and targets API 26+.
+- **Secure Pairing:** Encrypted storage of server profiles and bearer tokens via `EncryptedSharedPreferences` (AES-256 GCM).
+- **Multi-Profile Connection:** Save, switch, and test ping latency for home, office, or remote server profiles.
+- **AI Chat & Tools:** Real-time streaming chat with model selection (`minimax-m3:cloud`, etc.), thread history persistence, tool execution notifications, response regeneration, and voice input/output.
+- **Workspace File Management:** Browse folders, search files, create new files, rename, and delete items with path-traversal protection.
+- **File Editor:** Full code and text editing with dirty-state dirty flag tracking, unsaved changes confirmation, and revert capabilities.
+- **System Diagnostics:** Monitor host uptime, OS platform info, active connection metrics, and health status.
+- **Network Resilience:** Auto-reconnect flow, exponential backoff retries, and offline reachability observer.
 
-For a same-Wi-Fi connection, configure the host project with:
+## Setup & Execution
+
+Open the `android/` directory in Android Studio and run the `app` configuration. The project targets API 26+ (Android 8.0+).
+
+For a local Wi-Fi connection, configure the server `.env`:
 
 ```dotenv
 MINI_O_HOST=0.0.0.0
-REMOTE_AUTH_TOKEN=use-a-long-random-secret
-ALLOWED_HOSTS=["192.168.1.20","localhost"]
+REMOTE_AUTH_TOKEN=your-secure-random-token
+ALLOWED_HOSTS=["192.168.1.50","10.0.2.2","localhost"]
 ```
 
-Replace the example address in `ALLOWED_HOSTS`, start Mini-O, find the
-computer's private LAN address, and enter
-`http://<lan-address>:8000` and the token in the app. Use HTTPS through a
-trusted reverse proxy before using it across an untrusted network. Keep
-`ALLOWED_ROOTS` narrow and never expose port 8000 to the public internet.
+## Security & Architecture
+
+- **Encrypted Storage:** All credentials and server tokens are saved in Android Keystore backed `EncryptedSharedPreferences`.
+- **Window Protection:** `FLAG_SECURE` is enabled on connection screens to prevent screenshot leaks of auth tokens.
+- **Path Sanitization:** Client-side traversal checks prevent relative path traversal (`..`).
+- **Architecture:** `MiniOMainApp` -> `MiniOViewModel` -> `MiniORepository` -> `MiniOApiClient` / `ConnectionStore` / `ChatStorage`.
