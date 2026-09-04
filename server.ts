@@ -3,6 +3,7 @@ import type { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
 import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
 import { GoogleGenAI, Type, Modality } from '@google/genai';
@@ -76,24 +77,8 @@ function resolveDataDir(): string {
     return path.resolve(process.env.DATA_DIR);
   }
 
-  // If running in development (current working directory is NOT /opt/mini-o and ./data is writable)
-  const cwd = process.cwd();
-  if (cwd !== '/opt/mini-o' && !cwd.startsWith('/opt/mini-o/')) {
-    const localData = path.join(cwd, 'data');
-    try {
-      if (!fs.existsSync(localData)) {
-        fs.mkdirSync(localData, { recursive: true });
-      }
-      fs.accessSync(localData, fs.constants.W_OK);
-      return localData;
-    } catch {
-      // Fall through to user data directory
-    }
-  }
-
-  // User-specific data directory: ~/.local/share/mini-o/data or ~/.mini-o/data
   const homeDir = process.env.HOME || process.env.USERPROFILE || '/tmp';
-  const userDir = path.join(process.env.XDG_DATA_HOME || path.join(homeDir, '.local', 'share', 'mini-o'), 'data');
+  const userDir = path.join(homeDir, '.gemini');
   try {
     if (!fs.existsSync(userDir)) {
       fs.mkdirSync(userDir, { recursive: true });
@@ -116,7 +101,22 @@ function resolveDataDir(): string {
 
 // Workspace settings
 const rootDir = process.cwd();
-const dataDir = resolveDataDir();
+let dataDir = resolveDataDir();
+let isFirstRun = false;
+const globalConfigPath = path.join(os.homedir(), '.mini-o.json');
+try {
+  if (fs.existsSync(globalConfigPath)) {
+    const cfg = JSON.parse(fs.readFileSync(globalConfigPath, 'utf-8'));
+    if (cfg.workspaceDir) {
+      dataDir = cfg.workspaceDir;
+      process.env.MINI_O_DATA_DIR = dataDir; // update env for subsequent calls
+    }
+  } else {
+    isFirstRun = true;
+  }
+} catch (e) {
+  isFirstRun = true;
+}
 
 try {
   if (!fs.existsSync(dataDir)) {
@@ -1351,7 +1351,15 @@ async function executeTool(
 function setupApiRoutes(router: express.Router) {
   // Health
   router.get('/health', (_req, res) => {
-    res.json({ status: 'ok', ollama: 'online', timestamp: new Date().toISOString() });
+    res.json({
+      status: 'ok',
+      version: '1.0.0',
+      platform: process.platform,
+      host: os.hostname(),
+      uptime: process.uptime(),
+      ollama: 'online',
+      timestamp: new Date().toISOString()
+    });
   });
 
   router.get('/health/readiness', (_req, res) => {
@@ -1362,13 +1370,20 @@ function setupApiRoutes(router: express.Router) {
   router.get('/diagnostics', (_req, res) => {
     res.json({
       status: 'ok',
-      version: '0.1.0',
+      version: '1.0.0',
       runtime: 'node22',
       memory: process.memoryUsage(),
       uptime: process.uptime(),
       conversations_count: conversations.size,
       error_log_count: serverErrorLogs.length,
-      workspace_dir: dataDir,
+      workspace_dir: dataDir, is_first_run: isFirstRun,
+      workspaceDir: dataDir,
+      logCount: serverErrorLogs.length,
+      log_count: serverErrorLogs.length,
+      errorCount: serverErrorLogs.length,
+      error_count: serverErrorLogs.length,
+      activeConnections: 1,
+      active_connections: 1
     });
   });
 
@@ -1550,9 +1565,20 @@ function setupApiRoutes(router: express.Router) {
     res.json({ deleted: true, name: req.params.name });
   });
 
-  // Chat stream
-  router.post('/chat/stream', async (req, res) => {
-    const { model = DEFAULT_MODEL, messages, conversation_id, use_tools, confirmed_tools = [], options = {}, workspace_path } = req.body;
+  // Chat stream handler (supports /chat and /chat/stream)
+  const handleChatStream = async (req: express.Request, res: express.Response) => {
+    const {
+      model = DEFAULT_MODEL,
+      messages,
+      conversation_id,
+      conversationId,
+      use_tools,
+      useTools,
+      confirmed_tools,
+      confirmedTools,
+      options = {},
+      workspace_path
+    } = req.body;
 
     if (!Array.isArray(messages) || messages.length === 0) {
       return res.status(400).json(
@@ -1572,7 +1598,9 @@ function setupApiRoutes(router: express.Router) {
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('X-Accel-Buffering', 'no');
 
-    const convId = conversation_id || `conv_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const convId = conversationId || conversation_id || `conv_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const enableTools = useTools !== undefined ? useTools : (use_tools !== undefined ? use_tools : true);
+    const confirmedList = confirmedTools || confirmed_tools || [];
     const fullMessages = Array.isArray(messages) ? [...messages] : [];
     const lastUserMsg = fullMessages.filter(m => m.role === 'user').at(-1)?.content || '';
 
@@ -1591,7 +1619,7 @@ function setupApiRoutes(router: express.Router) {
       : basePersona;
 
     // Surface directive application immediately — never silent.
-    res.write(`event: agent_directives\ndata: ${JSON.stringify({ active: agentResult.active, sources: agentResult.sources })}\n\n`);
+    res.write(`event: agent_directives\ndata: ${JSON.stringify({ type: 'agent_directives', active: agentResult.active, sources: agentResult.sources })}\n\n`);
 
     try {
       const isGeminiModel = model?.startsWith('gemini') || (geminiClient && !model?.includes(':') && !model?.includes('llama') && !model?.includes('minimax') && !model?.includes('glm') && !model?.includes('gemma') && !model?.includes('qwen'));
@@ -1613,7 +1641,7 @@ function setupApiRoutes(router: express.Router) {
         if (options.googleSearch) {
           toolsConfig.push({ googleSearch: {} });
         }
-        if (use_tools) {
+        if (enableTools) {
           toolsConfig.push({ functionDeclarations: geminiFunctionDeclarations });
         }
 
@@ -1623,8 +1651,6 @@ function setupApiRoutes(router: express.Router) {
           contents,
           config: {
             systemInstruction: agentInstructions,
-            temperature: typeof options.temperature === 'number' ? options.temperature : 0.7,
-            topP: typeof options.top_p === 'number' ? options.top_p : 0.95,
             tools: toolsConfig.length > 0 ? toolsConfig : undefined,
           },
         });
@@ -1635,7 +1661,7 @@ function setupApiRoutes(router: express.Router) {
           // Check for grounding metadata
           const grounding = chunk.candidates?.[0]?.groundingMetadata;
           if (grounding?.groundingChunks?.length) {
-            res.write(`event: grounding\ndata: ${JSON.stringify(grounding)}\n\n`);
+            res.write(`event: grounding\ndata: ${JSON.stringify({ type: 'grounding', ...grounding })}\n\n`);
           }
 
           // Check for function calls
@@ -1649,7 +1675,7 @@ function setupApiRoutes(router: express.Router) {
           const text = chunk.text;
           if (text) {
             assistantContent += text;
-            res.write(`event: token\ndata: ${JSON.stringify({ role: 'assistant', content: text })}\n\n`);
+            res.write(`event: token\ndata: ${JSON.stringify({ type: 'token', data: text, role: 'assistant', content: text })}\n\n`);
           }
         }
 
@@ -1657,9 +1683,9 @@ function setupApiRoutes(router: express.Router) {
         if (pendingFunctionCalls.length > 0) {
           const toolResultsParts: any[] = [];
           for (const fc of pendingFunctionCalls) {
-            res.write(`event: tool_call\ndata: ${JSON.stringify({ name: fc.name, args: fc.args })}\n\n`);
-            const tResult = await executeTool(fc.name, fc.args, confirmed_tools);
-            res.write(`event: tool_result\ndata: ${JSON.stringify({ name: fc.name, ...tResult })}\n\n`);
+            res.write(`event: tool_call\ndata: ${JSON.stringify({ type: 'tool_call', name: fc.name, data: JSON.stringify(fc.args), args: fc.args })}\n\n`);
+            const tResult = await executeTool(fc.name, fc.args, confirmedList);
+            res.write(`event: tool_result\ndata: ${JSON.stringify({ type: 'tool_result', name: fc.name, data: tResult.output || tResult.error || 'ok', ...tResult })}\n\n`);
             toolResultsParts.push({
               functionResponse: {
                 name: fc.name,
@@ -1693,7 +1719,7 @@ function setupApiRoutes(router: express.Router) {
             const text = chunk.text;
             if (text) {
               assistantContent += text;
-              res.write(`event: token\ndata: ${JSON.stringify({ role: 'assistant', content: text })}\n\n`);
+              res.write(`event: token\ndata: ${JSON.stringify({ type: 'token', data: text, role: 'assistant', content: text })}\n\n`);
             }
           }
         }
@@ -1748,7 +1774,7 @@ function setupApiRoutes(router: express.Router) {
               },
             };
 
-            if (use_tools) {
+            if (enableTools) {
               ollamaReqBody.tools = ollamaTools;
             }
 
@@ -1793,7 +1819,7 @@ function setupApiRoutes(router: express.Router) {
                     iterationContent += tokenText;
                     if (pendingToolCalls.length === 0) {
                       assistantContent += tokenText;
-                      res.write(`event: token\ndata: ${JSON.stringify({ role: 'assistant', content: tokenText })}\n\n`);
+                      res.write(`event: token\ndata: ${JSON.stringify({ type: 'token', data: tokenText, role: 'assistant', content: tokenText })}\n\n`);
                     }
                   }
                   if (parsed.done && parsed.eval_count) {
@@ -1821,14 +1847,14 @@ function setupApiRoutes(router: express.Router) {
                   iterationContent += tokenText;
                   if (pendingToolCalls.length === 0) {
                     assistantContent += tokenText;
-                    res.write(`event: token\ndata: ${JSON.stringify({ role: 'assistant', content: tokenText })}\n\n`);
+                    res.write(`event: token\ndata: ${JSON.stringify({ type: 'token', data: tokenText, role: 'assistant', content: tokenText })}\n\n`);
                   }
                 }
               } catch {}
             }
 
             // Fallback: check if model emitted inline JSON tool call in text output
-            if (use_tools && pendingToolCalls.length === 0 && iterationContent.trim()) {
+            if (enableTools && pendingToolCalls.length === 0 && iterationContent.trim()) {
               const inlineMatch = iterationContent.match(/(?:```(?:json)?\s*)?\{\s*"name"\s*:\s*"([a-zA-Z0-9_-]+)"\s*,\s*"arguments"\s*:\s*(\{[\s\S]*?\})\s*\}(?:\s*```)?/);
               if (inlineMatch) {
                 try {
@@ -1864,9 +1890,9 @@ function setupApiRoutes(router: express.Router) {
                 }
               }
 
-              res.write(`event: tool_call\ndata: ${JSON.stringify({ name: toolName, args: toolArgs })}\n\n`);
-              const tResult = await executeTool(toolName, toolArgs, confirmed_tools);
-              res.write(`event: tool_result\ndata: ${JSON.stringify({ name: toolName, ...tResult })}\n\n`);
+              res.write(`event: tool_call\ndata: ${JSON.stringify({ type: 'tool_call', name: toolName, data: JSON.stringify(toolArgs), args: toolArgs })}\n\n`);
+              const tResult = await executeTool(toolName, toolArgs, confirmedList);
+              res.write(`event: tool_result\ndata: ${JSON.stringify({ type: 'tool_result', name: toolName, data: tResult.output || tResult.error || (tResult.ok ? 'ok' : 'execution failed'), ...tResult })}\n\n`);
 
               toolActivity.unshift({
                 timestamp: new Date().toISOString(),
@@ -1904,7 +1930,7 @@ function setupApiRoutes(router: express.Router) {
           // There is no model in this loop, so AGENT.md CANNOT be applied
           // here — say so explicitly instead of silently pretending this
           // scripted stub is the orchestrated agent.
-          res.write(`event: degraded_mode\ndata: ${JSON.stringify({ reason: 'ollama_unreachable', agent_directives_applied: false, agent_sources: agentResult.sources })}\n\n`);
+          res.write(`event: degraded_mode\ndata: ${JSON.stringify({ type: 'degraded_mode', reason: 'ollama_unreachable', agent_directives_applied: false, agent_sources: agentResult.sources })}\n\n`);
           const degradedNotice = agentResult.active
             ? `_Offline fallback active (Ollama unreachable) — AGENT.md directives from ${agentResult.sources.join(', ')} are NOT applied in this mode._\n\n`
             : '';
@@ -1912,17 +1938,17 @@ function setupApiRoutes(router: express.Router) {
           const lowerPrompt = lastUserMsg.toLowerCase();
           let toolRan: { name: string; args: any; result: any } | null = null;
 
-          if (use_tools && (lowerPrompt.includes('list') || lowerPrompt.includes('files') || lowerPrompt.includes('workspace'))) {
+          if (enableTools && (lowerPrompt.includes('list') || lowerPrompt.includes('files') || lowerPrompt.includes('workspace'))) {
             const tArgs = { path: '.' };
-            res.write(`event: tool_call\ndata: ${JSON.stringify({ name: 'list_files', args: tArgs })}\n\n`);
-            const tResult = await executeTool('list_files', tArgs, confirmed_tools);
-            res.write(`event: tool_result\ndata: ${JSON.stringify({ name: 'list_files', ...tResult })}\n\n`);
+            res.write(`event: tool_call\ndata: ${JSON.stringify({ type: 'tool_call', name: 'list_files', data: JSON.stringify(tArgs), args: tArgs })}\n\n`);
+            const tResult = await executeTool('list_files', tArgs, confirmedList);
+            res.write(`event: tool_result\ndata: ${JSON.stringify({ type: 'tool_result', name: 'list_files', data: tResult.output || tResult.error || 'ok', ...tResult })}\n\n`);
             toolRan = { name: 'list_files', args: tArgs, result: tResult };
-          } else if (use_tools && (lowerPrompt.includes('read') || lowerPrompt.includes('show')) && (lowerPrompt.includes('.md') || lowerPrompt.includes('file'))) {
+          } else if (enableTools && (lowerPrompt.includes('read') || lowerPrompt.includes('show')) && (lowerPrompt.includes('.md') || lowerPrompt.includes('file'))) {
             const tArgs = { path: 'welcome.md' };
-            res.write(`event: tool_call\ndata: ${JSON.stringify({ name: 'read_file', args: tArgs })}\n\n`);
-            const tResult = await executeTool('read_file', tArgs, confirmed_tools);
-            res.write(`event: tool_result\ndata: ${JSON.stringify({ name: 'read_file', ...tResult })}\n\n`);
+            res.write(`event: tool_call\ndata: ${JSON.stringify({ type: 'tool_call', name: 'read_file', data: JSON.stringify(tArgs), args: tArgs })}\n\n`);
+            const tResult = await executeTool('read_file', tArgs, confirmedList);
+            res.write(`event: tool_result\ndata: ${JSON.stringify({ type: 'tool_result', name: 'read_file', data: tResult.output || tResult.error || 'ok', ...tResult })}\n\n`);
             toolRan = { name: 'read_file', args: tArgs, result: tResult };
           }
 
@@ -1953,7 +1979,7 @@ You can interact with workspace files, configure tool policies, or send tasks to
           for (const word of words) {
             const chunk = word + ' ';
             assistantContent += chunk;
-            res.write(`event: token\ndata: ${JSON.stringify({ role: 'assistant', content: chunk })}\n\n`);
+            res.write(`event: token\ndata: ${JSON.stringify({ type: 'token', data: chunk, role: 'assistant', content: chunk })}\n\n`);
             await new Promise(r => setTimeout(r, 18));
           }
         }
@@ -1976,15 +2002,18 @@ You can interact with workspace files, configure tool policies, or send tasks to
       });
 
       const statsToSend = streamStats || { eval_count: Math.round(assistantContent.length / 4), total_duration: 450000000 };
-      res.write(`event: done\ndata: ${JSON.stringify({ done: true, stats: statsToSend, stop_reason: 'stop' })}\n\n`);
-      res.write(`event: end\ndata: ${JSON.stringify({ id: convId })}\n\n`);
+      res.write(`event: done\ndata: ${JSON.stringify({ type: 'done', done: true, stats: statsToSend, stop_reason: 'stop' })}\n\n`);
+      res.write(`event: end\ndata: ${JSON.stringify({ type: 'end', id: convId })}\n\n`);
       res.end();
     } catch (err: any) {
       const diag = logServerError(500, 'STREAM_FAILED', 'stream', err.message || 'Chat stream failed', 'Click Retry to restart generation', req);
-      res.write(`event: error\ndata: ${JSON.stringify({ error: 'Chat stream failed', detail: err.message, diagnostic_id: diag.id, action: diag.action })}\n\n`);
+      res.write(`event: error\ndata: ${JSON.stringify({ type: 'error', data: err.message, error: 'Chat stream failed', detail: err.message, diagnostic_id: diag.id, action: diag.action })}\n\n`);
       res.end();
     }
-  });
+  };
+
+  router.post('/chat', handleChatStream);
+  router.post('/chat/stream', handleChatStream);
 
   // Dedicated Gemini Endpoints
   router.get('/gemini/status', (_req, res) => {
@@ -2571,7 +2600,7 @@ You can interact with workspace files, configure tool policies, or send tasks to
   // Workspace configuration & search
   router.get('/workspace/config', (_req, res) => {
     res.json({
-      workspace_dir: dataDir,
+      workspace_dir: dataDir, is_first_run: isFirstRun,
       allowed_roots: [dataDir],
       config_file: 'mini-o.config.json',
       tools: toolPolicies,
@@ -2584,11 +2613,34 @@ You can interact with workspace files, configure tool policies, or send tasks to
       Object.assign(toolPolicies, tools);
     }
     res.json({
-      workspace_dir: dataDir,
+      workspace_dir: dataDir, is_first_run: isFirstRun,
       allowed_roots: [dataDir],
       config_file: 'mini-o.config.json',
       tools: toolPolicies,
     });
+  });
+
+  
+  router.post('/workspace/config/root', (req, res) => {
+    const { path: newPath } = req.body;
+    if (!newPath || typeof newPath !== 'string') {
+      return res.status(400).json({ error: 'Path is required' });
+    }
+    
+    // Save to global config
+    dataDir = path.resolve(newPath);
+    isFirstRun = false;
+    
+    try {
+      if (!fs.existsSync(dataDir)) {
+        fs.mkdirSync(dataDir, { recursive: true });
+      }
+      fs.writeFileSync(globalConfigPath, JSON.stringify({ workspaceDir: dataDir }, null, 2), 'utf-8');
+    } catch (e) {
+      return res.status(500).json({ error: 'Failed to create or save workspace dir: ' + (e as Error).message });
+    }
+    
+    res.json({ ok: true, workspace_dir: dataDir });
   });
 
   router.get('/workspace/search', (req, res) => {
@@ -3060,15 +3112,24 @@ You can interact with workspace files, configure tool policies, or send tasks to
 
   router.get('/platform', (_req, res) => {
     const isWindows = process.platform === 'win32';
+    const isLinux = process.platform === 'linux';
+    const isDarwin = process.platform === 'darwin';
     res.json({
       platform: process.platform,
       arch: process.arch,
+      nodeVersion: process.version,
       node_version: process.version,
+      isWindows: isWindows,
       is_windows: isWindows,
-      is_linux: process.platform === 'linux',
-      is_darwin: process.platform === 'darwin',
+      isLinux: isLinux,
+      is_linux: isLinux,
+      isDarwin: isDarwin,
+      is_darwin: isDarwin,
+      workspaceDir: dataDir,
+      workspace_dir: dataDir, is_first_run: isFirstRun,
       paths: {
-        workspace_dir: dataDir,
+        workspace_dir: dataDir, is_first_run: isFirstRun,
+        workspaceDir: dataDir,
         app_root: rootDir,
         temp_dir: process.env.TEMP || process.env.TMP || '/tmp',
         appdata_dir: process.env.LOCALAPPDATA || process.env.APPDATA || path.join(process.env.HOME || '/tmp', '.mini-o'),
@@ -3172,6 +3233,26 @@ You can interact with workspace files, configure tool policies, or send tasks to
 
 // Mount API routes on both /api and /api/v1
 const apiRouter = express.Router();
+
+// Bearer Token authentication middleware
+apiRouter.use((req, res, next) => {
+  const expectedBearerToken = process.env.MINI_O_BEARER_TOKEN || process.env.BEARER_TOKEN || '';
+  if (req.path === '/health' || req.path === '/health/readiness') {
+    return next();
+  }
+  if (expectedBearerToken) {
+    const authHeader = req.headers['authorization'];
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json(formatErrorPayload(401, 'UNAUTHORIZED', 'auth', 'Missing or invalid Bearer Token', 'Provide Authorization: Bearer <TOKEN> header', req));
+    }
+    const token = authHeader.substring(7).trim();
+    if (token !== expectedBearerToken) {
+      return res.status(401).json(formatErrorPayload(401, 'UNAUTHORIZED', 'auth', 'Invalid Bearer Token', 'Check your bearer token credentials', req));
+    }
+  }
+  next();
+});
+
 setupApiRoutes(apiRouter);
 app.use('/api', apiRouter);
 app.use('/api/v1', apiRouter);

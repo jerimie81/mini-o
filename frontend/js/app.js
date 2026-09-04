@@ -2186,30 +2186,62 @@ api.recovery().then(records => {
 
 requestAnimationFrame(() => document.documentElement.classList.add("shell-ready"));
 
-if (storage.get("onboarding-seen", "false") !== "true") {
-  (async () => {
-    let diagnostic = "Connection check underway…";
-    try {
-      const health = await api.health();
-      diagnostic = health.status === "ok" ? "Workspace server is connected." : "Mini-O server is starting up.";
-    } catch (error) {
-      diagnostic = `Mini-O connection diagnostic: ${error.message}`;
-    }
-    showModal(
-      "Welcome to Mini-O Workspace",
-      `<p>Your chats, workspace files, and diagnostic logs stay local and private.</p>
-       <p><strong>System diagnostic:</strong> ${diagnostic}</p>
-       <ol>
-         <li>Select a model from the header dropdown.</li>
-         <li>Browse, view, and edit files in the right <strong>File Explorer</strong> panel.</li>
-         <li>Click the <strong>☰ Menu</strong> button in the header (or press <kbd>Alt+M</kbd>) to configure <strong>API keys &amp; secrets</strong> (GitHub, GitLab, etc.), tool policies, file sandbox access, and IDE integrations.</li>
-         <li>Inspect error traces in <strong>Settings &amp; Diagnostics</strong> anytime.</li>
-       </ol>`,
-      '<div class="modal-actions"><button class="primary modal-close" id="finish-onboarding">Get started</button></div>'
-    );
-  })();
-}
 
-document.addEventListener("click", event => {
-  if (event.target.id === "finish-onboarding") storage.set("onboarding-seen", "true");
-});
+  (async () => {
+    let workspace = { is_first_run: false, workspace_dir: '' };
+    try {
+      workspace = await api.workspaceConfig();
+    } catch (e) {}
+    
+    const showOnboarding = storage.get("onboarding-seen", "false") !== "true" || workspace.is_first_run;
+    if (showOnboarding) {
+      let diagnostic = "Connection check underway…";
+      try {
+        const health = await api.health();
+        diagnostic = health.status === "ok" ? "Workspace server is connected." : "Mini-O server is starting up.";
+      } catch (error) {
+        diagnostic = `Mini-O connection diagnostic: ${error.message}`;
+      }
+      
+      const rootInputHtml = workspace.is_first_run ? `
+        <div style="margin-top: 1rem; padding: 1rem; background: var(--surface-raised); border-radius: 8px;">
+          <h4 style="margin: 0 0 0.5rem 0;">Select App Root (Workspace Directory)</h4>
+          <p style="font-size: 0.9em; color: var(--text-muted); margin-bottom: 0.5rem;">Mini-O needs a folder to store your AI workspace files and configs.</p>
+          <input type="text" id="setup-app-root" value="${workspace.workspace_dir || '~/.gemini'}" class="model-search" style="width: 100%; font-family: monospace;" />
+        </div>
+      ` : '';
+
+      showModal(
+        "Welcome to Mini-O Workspace",
+        `<p>Your chats, workspace files, and diagnostic logs stay local and private.</p>
+         <p><strong>System diagnostic:</strong> ${diagnostic}</p>
+         ${rootInputHtml}
+         <ol>
+           <li>Select a model from the header dropdown.</li>
+           <li>Browse, view, and edit files in the right <strong>File Explorer</strong> panel.</li>
+           <li>Click the <strong>☰ Menu</strong> button in the header to configure <strong>API keys</strong>.</li>
+         </ol>`,
+        '<div class="modal-actions"><button class="primary modal-close" id="finish-onboarding">Get started</button></div>'
+      );
+      
+      document.addEventListener("click", async (event) => {
+        if (event.target.id === "finish-onboarding") {
+          storage.set("onboarding-seen", "true");
+          const rootInput = document.getElementById("setup-app-root");
+          if (rootInput && workspace.is_first_run) {
+            try {
+              await fetch('/api/workspace/config/root', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path: rootInput.value })
+              });
+              files.load();
+            } catch (e) {
+              console.error("Failed to set app root", e);
+            }
+          }
+        }
+      });
+    }
+  })();
+
