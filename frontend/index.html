@@ -3,7 +3,10 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Mini-O — local AI workspace</title>
+<title>Mini-O Local AI Workspace</title>
+<meta name="description" content="A cross-platform local-first AI workspace and Android companion with chat, model management, workspace file explorer, resilient diagnostics, tool execution, and mobile simulator preview." />
+<meta property="og:title" content="Mini-O Local AI Workspace" />
+<meta property="og:description" content="A cross-platform local-first AI workspace and Android companion with chat, model management, workspace file explorer, resilient diagnostics, tool execution, and mobile simulator preview." />
 <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
 <link rel="stylesheet" href="/static/css/styles.css?v=20260813-2" />
 </head>
@@ -59,6 +62,7 @@
       <button id="pull-model" class="secondary">＋ Pull model</button>
       <button id="open-menu-sidebar" class="secondary">☰ Menu</button>
       <button id="open-files" class="secondary">📁 Files</button>
+      <button id="open-android-sidebar" class="secondary">📱 Android App</button>
     </div>
   </aside>
 
@@ -69,6 +73,9 @@
         <button id="open-menu" class="btn-menu" title="Workspace Menu & Configuration (Alt+M)" aria-label="Open Workspace Menu">
           <span class="btn-menu-icon">☰</span>
           <span class="btn-menu-label">Menu</span>
+        </button>
+        <button id="launch-android-preview" class="btn-android-preview" title="Launch Android Companion App in preview window (Alt+A)" aria-label="Launch Android Companion App">
+          <span>📱</span><span>Android App</span>
         </button>
         <div class="header-info">
           <span id="current-model" class="badge">No model</span>
@@ -147,6 +154,8 @@
     </div>
   </aside>
 </div>
+
+<div id="android-preview-container" class="android-preview-container hidden"></div>
 
 <div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title"></div>
 <script type="module" src="/static/js/app.js?v=20260813-2"></script>

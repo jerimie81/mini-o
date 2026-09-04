@@ -116,6 +116,36 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .sidebar { position: relative; border-right: 1px solid var(--border); display: flex; flex-direction: column; gap: 12px; padding: 16px; min-width: 0; min-height: 0; }
 .sidebar-header, .header-actions, .header-info, .header-left, .composer-footer, .panel-heading, .editor-header { display: flex; align-items: center; gap: 8px; }
 .sidebar-header button:first-child { flex: 1; }
+.btn-android-preview {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: linear-gradient(135deg, #1f6feb 0%, #238636 100%);
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: var(--radius-sm);
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+  transition: all 0.15s ease;
+}
+.btn-android-preview:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(35, 134, 54, 0.4);
+}
+.android-preview-container {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: #090c10;
+  display: flex;
+  flex-direction: column;
+}
+.android-preview-container.hidden {
+  display: none !important;
+}
 .icon-button, .secondary, .file-toolbar button { border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-raised); color: var(--text); cursor: pointer; }
 .icon-button { width: 34px; height: 34px; padding: 0; display: inline-grid; place-items: center; flex: 0 0 auto; }
 .icon-button:hover, .secondary:hover, .file-toolbar button:hover { background: var(--surface-hover); }
@@ -1000,3 +1030,983 @@ body.resizing-panels iframe, body.resizing-panels textarea { pointer-events: non
   .msg .avatar { width: 28px; height: 28px; }
   .composer { padding-inline: 12px; }
 }
+
+/* ==========================================================================
+   Android Companion Interactive Preview Simulator Styles
+   ========================================================================== */
+.droid-preview-root {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  width: 100%;
+  background: #090c10;
+  color: #e6edf3;
+  font-family: -apple-system, BlinkMacSystemFont, "Roboto", "Segoe UI", sans-serif;
+  overflow: hidden;
+}
+
+.droid-preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: #161b22;
+  border-bottom: 1px solid #30363d;
+  flex-shrink: 0;
+  z-index: 20;
+}
+
+.droid-preview-header-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.droid-brand-icon {
+  color: #3ddbd9;
+}
+
+.droid-preview-title {
+  font-weight: 600;
+  font-size: 14px;
+  color: #f0f6fc;
+}
+
+.droid-badge-live {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(61, 219, 217, 0.15);
+  color: #3ddbd9;
+  border: 1px solid rgba(61, 219, 217, 0.3);
+}
+
+.droid-preview-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.droid-ctrl-btn {
+  background: #21262d;
+  border: 1px solid #30363d;
+  color: #c9d1d9;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.droid-ctrl-btn:hover {
+  background: #30363d;
+  color: #ffffff;
+}
+
+.droid-ctrl-btn.active {
+  background: #5d83e6;
+  border-color: #5d83e6;
+  color: #ffffff;
+}
+
+.droid-ctrl-close {
+  background: #238636;
+  border-color: #2ea043;
+  color: #ffffff;
+  font-weight: 500;
+}
+
+.droid-ctrl-close:hover {
+  background: #2ea043;
+}
+
+/* Device Viewport */
+.droid-device-viewport {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 16px;
+  background: radial-gradient(circle at center, #161b22 0%, #090c10 100%);
+}
+
+.droid-preview-root.fullscreen .droid-device-viewport {
+  padding: 0;
+  background: #0d1117;
+}
+
+/* Phone Bezel Frame */
+.droid-phone-shell {
+  width: 100%;
+  max-width: 412px;
+  height: 100%;
+  max-height: 860px;
+  background: #0d1117;
+  border-radius: 40px;
+  border: 10px solid #21262d;
+  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.6), 0 0 0 1px #30363d;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow: hidden;
+}
+
+.droid-preview-root.fullscreen .droid-phone-shell {
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: 0;
+  border: none;
+  box-shadow: none;
+}
+
+/* Notch & Camera */
+.droid-notch-wrap {
+  position: absolute;
+  top: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  pointer-events: none;
+}
+
+.droid-camera-hole {
+  width: 12px;
+  height: 12px;
+  background: #000000;
+  border-radius: 50%;
+  border: 1.5px solid #161b22;
+}
+
+/* Status Bar */
+.droid-status-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 18px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #8b949e;
+  z-index: 40;
+  background: #0d1117;
+}
+
+.droid-status-icons {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.droid-offline-banner {
+  background: #d29922;
+  color: #000;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 12px;
+  text-align: center;
+  z-index: 30;
+}
+
+/* Screen Body */
+.droid-screen-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+  background: #0d1117;
+}
+
+.droid-screen {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  height: 100%;
+}
+
+/* Top App Bar */
+.droid-top-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: #161b22;
+  border-bottom: 1px solid #21262d;
+  flex-shrink: 0;
+}
+
+.droid-top-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.droid-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #3fb950;
+}
+
+.droid-status-dot.offline {
+  background: #f85149;
+}
+
+.droid-title-wrap {
+  display: flex;
+  flex-direction: column;
+}
+
+.droid-screen-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #f0f6fc;
+}
+
+.droid-screen-subtitle {
+  font-size: 10px;
+  color: #8b949e;
+}
+
+.droid-screen-subtitle.dirty {
+  color: #f0883e;
+}
+
+.droid-screen-subtitle.saved {
+  color: #3fb950;
+}
+
+.droid-top-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.droid-model-chip {
+  background: #21262d;
+  border: 1px solid #30363d;
+  color: #58a6ff;
+  font-size: 11px;
+  border-radius: 12px;
+  padding: 2px 8px;
+  outline: none;
+  cursor: pointer;
+  max-width: 130px;
+}
+
+.droid-icon-btn {
+  background: #21262d;
+  border: 1px solid #30363d;
+  color: #c9d1d9;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.droid-icon-btn:hover {
+  background: #30363d;
+}
+
+.droid-icon-btn-sm {
+  background: transparent;
+  border: none;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
+.droid-icon-btn-sm:hover {
+  background: #30363d;
+}
+
+/* Chat Messages */
+.droid-messages-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.droid-msg-row {
+  display: flex;
+  width: 100%;
+}
+
+.droid-msg-row.user {
+  justify-content: flex-end;
+}
+
+.droid-msg-row.assistant {
+  justify-content: flex-start;
+}
+
+.droid-msg-bubble {
+  max-width: 85%;
+  padding: 8px 12px;
+  border-radius: 14px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.droid-msg-row.user .droid-msg-bubble {
+  background: #1f6feb;
+  color: #ffffff;
+  border-bottom-right-radius: 4px;
+}
+
+.droid-msg-row.assistant .droid-msg-bubble {
+  background: #161b22;
+  color: #e6edf3;
+  border: 1px solid #30363d;
+  border-bottom-left-radius: 4px;
+}
+
+.droid-msg-header {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  opacity: 0.7;
+  margin-bottom: 4px;
+}
+
+.droid-msg-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 6px;
+  padding-top: 4px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 10px;
+}
+
+.droid-tps-badge {
+  color: #3ddbd9;
+  font-weight: 600;
+}
+
+.droid-model-tag {
+  opacity: 0.6;
+}
+
+.droid-msg-tools {
+  display: flex;
+  gap: 4px;
+}
+
+.droid-msg-tool-btn {
+  background: transparent;
+  border: none;
+  font-size: 11px;
+  cursor: pointer;
+  padding: 1px 3px;
+  border-radius: 3px;
+}
+
+.droid-msg-tool-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.droid-code-block {
+  background: #090c10;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-family: monospace;
+  font-size: 11px;
+  overflow-x: auto;
+  margin: 6px 0;
+}
+
+.droid-inline-code {
+  background: #090c10;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-family: monospace;
+  font-size: 11px;
+}
+
+/* Chat Composer */
+.droid-chat-composer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  background: #161b22;
+  border-top: 1px solid #21262d;
+  flex-shrink: 0;
+}
+
+.droid-input {
+  flex: 1;
+  background: #0d1117;
+  border: 1px solid #30363d;
+  color: #e6edf3;
+  padding: 8px 12px;
+  border-radius: 18px;
+  font-size: 13px;
+  outline: none;
+  resize: none;
+}
+
+.droid-input:focus {
+  border-color: #58a6ff;
+}
+
+.droid-btn-send {
+  background: #5d83e6;
+  border: none;
+  color: #ffffff;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.droid-btn-stop {
+  background: #da3633;
+  border: none;
+  color: #ffffff;
+  padding: 4px 10px;
+  border-radius: 14px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* Voice Waves Bar */
+.droid-voice-wave-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: #1f6feb;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.droid-wave-anim {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.droid-wave-anim span {
+  width: 3px;
+  height: 12px;
+  background: #fff;
+  animation: droidWave 0.8s ease-in-out infinite alternate;
+}
+
+.droid-wave-anim span:nth-child(2) { animation-delay: 0.15s; height: 16px; }
+.droid-wave-anim span:nth-child(3) { animation-delay: 0.3s; height: 10px; }
+.droid-wave-anim span:nth-child(4) { animation-delay: 0.45s; height: 14px; }
+.droid-wave-anim span:nth-child(5) { animation-delay: 0.6s; height: 8px; }
+
+@keyframes droidWave {
+  0% { transform: scaleY(0.4); }
+  100% { transform: scaleY(1.3); }
+}
+
+/* Tool Banner */
+.droid-tool-banner {
+  background: #1c2128;
+  border-bottom: 1px solid #30363d;
+  padding: 4px 12px;
+  font-size: 11px;
+  color: #58a6ff;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Bottom Navigation Bar */
+.droid-bottom-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  background: #161b22;
+  border-top: 1px solid #21262d;
+  padding: 4px 6px;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 30;
+}
+
+.droid-nav-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  background: transparent;
+  border: none;
+  color: #8b949e;
+  font-size: 10px;
+  padding: 4px 8px;
+  cursor: pointer;
+  border-radius: 8px;
+  transition: all 0.15s ease;
+}
+
+.droid-nav-item.active {
+  color: #58a6ff;
+  background: rgba(88, 166, 255, 0.1);
+}
+
+.droid-nav-icon {
+  font-size: 16px;
+}
+
+.droid-nav-fab-wrap {
+  position: relative;
+  top: -14px;
+}
+
+.droid-fab-mic {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #5d83e6 0%, #3ddbd9 100%);
+  border: 3px solid #0d1117;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  box-shadow: 0 4px 14px rgba(61, 219, 217, 0.4);
+  cursor: pointer;
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.droid-fab-mic:hover {
+  transform: scale(1.08);
+}
+
+.droid-fab-mic.listening {
+  background: linear-gradient(135deg, #f85149 0%, #d29922 100%);
+  box-shadow: 0 0 20px rgba(248, 81, 73, 0.8);
+  animation: pulseFab 1s infinite alternate;
+}
+
+.droid-fab-mic.speaking {
+  background: linear-gradient(135deg, #2ea043 0%, #3ddbd9 100%);
+  box-shadow: 0 0 20px rgba(61, 219, 217, 0.8);
+  animation: pulseFab 0.8s infinite alternate;
+}
+
+@keyframes pulseFab {
+  0% { transform: scale(1); }
+  100% { transform: scale(1.15); }
+}
+
+/* Navigation Pill */
+.droid-nav-pill-bar {
+  display: flex;
+  justify-content: center;
+  padding: 4px 0 6px;
+  background: #161b22;
+  flex-shrink: 0;
+}
+
+.droid-nav-pill {
+  width: 72px;
+  height: 4px;
+  background: #8b949e;
+  border-radius: 2px;
+  opacity: 0.5;
+}
+
+/* Workspace & Files Screen */
+.droid-screen-workspace,
+.droid-screen-diagnostics,
+.droid-screen-settings,
+.droid-screen-connect {
+  overflow-y: auto;
+}
+
+.droid-search-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 12px;
+  padding: 6px 10px;
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+}
+
+.droid-search-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: #e6edf3;
+  font-size: 12px;
+  outline: none;
+}
+
+.droid-search-clear {
+  background: transparent;
+  border: none;
+  color: #8b949e;
+  cursor: pointer;
+}
+
+.droid-file-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.droid-file-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  background: #161b22;
+  border: 1px solid #21262d;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.droid-file-item:hover {
+  background: #21262d;
+}
+
+.droid-file-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  overflow: hidden;
+}
+
+.droid-file-icon {
+  font-size: 16px;
+}
+
+.droid-file-info {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.droid-file-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: #e6edf3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.droid-file-meta {
+  font-size: 10px;
+  color: #8b949e;
+}
+
+.droid-file-actions {
+  display: flex;
+  gap: 4px;
+}
+
+/* File Editor */
+.droid-screen-editor {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.droid-editor-body {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+  background: #090c10;
+}
+
+.droid-editor-textarea {
+  flex: 1;
+  background: #090c10;
+  color: #e6edf3;
+  font-family: monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 10px;
+  border: none;
+  outline: none;
+  resize: none;
+  white-space: pre;
+}
+
+.droid-btn-primary-sm {
+  background: #238636;
+  border: 1px solid #2ea043;
+  color: #fff;
+  padding: 3px 8px;
+  border-radius: 5px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.droid-btn-secondary-sm {
+  background: #21262d;
+  border: 1px solid #30363d;
+  color: #c9d1d9;
+  padding: 3px 8px;
+  border-radius: 5px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+/* Diagnostics & Settings Cards */
+.droid-diag-scroll,
+.droid-settings-scroll,
+.droid-connect-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.droid-card {
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.droid-card.danger-zone {
+  border-color: rgba(248, 81, 73, 0.4);
+}
+
+.droid-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.droid-card-header h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: #f0f6fc;
+  flex: 1;
+}
+
+.droid-badge-green {
+  background: rgba(63, 185, 80, 0.15);
+  color: #3fb950;
+  border: 1px solid rgba(63, 185, 80, 0.3);
+  font-size: 9px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.droid-card-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.droid-stat-box {
+  background: #0d1117;
+  border: 1px solid #21262d;
+  border-radius: 8px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+}
+
+.droid-stat-label {
+  font-size: 10px;
+  color: #8b949e;
+}
+
+.droid-stat-val {
+  font-size: 13px;
+  font-weight: 600;
+  color: #e6edf3;
+  margin-top: 2px;
+}
+
+.droid-info-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 0;
+  border-bottom: 1px solid #21262d;
+  font-size: 12px;
+}
+
+.droid-info-label {
+  color: #8b949e;
+}
+
+.droid-info-val.mono {
+  font-family: monospace;
+  font-size: 11px;
+}
+
+.droid-profile-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.droid-profile-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #0d1117;
+  border: 1px solid #21262d;
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.droid-profile-item.active {
+  border-color: #58a6ff;
+}
+
+.droid-profile-details {
+  display: flex;
+  flex-direction: column;
+  font-size: 11px;
+}
+
+.droid-badge-active {
+  font-size: 9px;
+  font-weight: 700;
+  color: #3fb950;
+}
+
+.droid-btn-secondary {
+  width: 100%;
+  background: #21262d;
+  border: 1px solid #30363d;
+  color: #c9d1d9;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  margin-top: 8px;
+}
+
+.droid-btn-primary {
+  width: 100%;
+  background: #238636;
+  border: 1px solid #2ea043;
+  color: #fff;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.droid-btn-danger {
+  width: 100%;
+  background: rgba(248, 81, 73, 0.15);
+  border: 1px solid #f85149;
+  color: #f85149;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: 8px;
+}
+
+.droid-presets-row {
+  display: flex;
+  gap: 6px;
+  margin: 10px 0;
+  flex-wrap: wrap;
+}
+
+.droid-chip-btn {
+  background: #21262d;
+  border: 1px solid #30363d;
+  color: #58a6ff;
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 12px;
+  cursor: pointer;
+}
+
+.droid-bio-modal-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: flex-end;
+  z-index: 100;
+}
+
+.droid-bio-sheet {
+  width: 100%;
+  background: #161b22;
+  border-top: 1px solid #30363d;
+  border-radius: 16px 16px 0 0;
+  padding: 20px 16px;
+  text-align: center;
+}
+
+.droid-bio-icon {
+  font-size: 36px;
+  margin-bottom: 8px;
+}
+
+.droid-bio-sheet h3 {
+  margin: 0 0 6px;
+  font-size: 16px;
+  color: #f0f6fc;
+}
+
+.droid-bio-sheet p {
+  margin: 0 0 16px;
+  font-size: 12px;
+  color: #8b949e;
+}
+
+.droid-bio-btns {
+  display: flex;
+  gap: 10px;
+}
+
+.droid-empty-chat,
+.droid-empty-files {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 30px 16px;
+  color: #8b949e;
+}
+
+.droid-empty-icon {
+  font-size: 32px;
+  margin-bottom: 8px;
+}
+

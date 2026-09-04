@@ -4,6 +4,7 @@ import { FilePanel } from "./files.js";
 import { ToolPanel } from "./tools.js";
 import { migratePreferences as migratePreferenceSchema } from "./preferences.js";
 import { diagnostics, installGlobalErrorHandlers, classifyError } from "./errors.js";
+import { AndroidPreview } from "./android-preview.js";
 
 window.MiniO = window.MiniO || {
   commands: new Map(),
@@ -2213,3 +2214,67 @@ if (storage.get("onboarding-seen", "false") !== "true") {
 document.addEventListener("click", event => {
   if (event.target.id === "finish-onboarding") storage.set("onboarding-seen", "true");
 });
+
+// ============================================================================
+// Android Companion App Preview Simulator Launcher
+// ============================================================================
+let androidPreviewInstance = null;
+const appContainer = document.getElementById("app");
+const androidPreviewContainer = document.getElementById("android-preview-container");
+const launchAndroidBtn = document.getElementById("launch-android-preview");
+const sidebarAndroidBtn = document.getElementById("open-android-sidebar");
+
+function launchAndroidCompanion() {
+  if (!androidPreviewContainer) return;
+  appContainer?.classList.add("hidden");
+  androidPreviewContainer.classList.remove("hidden");
+
+  if (!androidPreviewInstance) {
+    androidPreviewInstance = new AndroidPreview(api);
+  }
+  androidPreviewInstance.mount(androidPreviewContainer);
+  storage.set("active-preview-mode", "android");
+  notify("info", "Launched Mini-O Android Companion in preview window");
+}
+
+function exitAndroidCompanion() {
+  if (!androidPreviewContainer) return;
+  androidPreviewContainer.classList.add("hidden");
+  appContainer?.classList.remove("hidden");
+  storage.set("active-preview-mode", "desktop");
+}
+
+if (launchAndroidBtn) {
+  launchAndroidBtn.addEventListener("click", () => {
+    launchAndroidCompanion();
+  });
+}
+
+if (sidebarAndroidBtn) {
+  sidebarAndroidBtn.addEventListener("click", () => {
+    launchAndroidCompanion();
+  });
+}
+
+window.addEventListener("minio-exit-android-preview", () => {
+  exitAndroidCompanion();
+});
+
+// Global keyboard shortcut: Alt+A to toggle Android App Companion
+document.addEventListener("keydown", event => {
+  if (event.altKey && (event.key === "a" || event.key === "A")) {
+    event.preventDefault();
+    if (androidPreviewContainer?.classList.contains("hidden")) {
+      launchAndroidCompanion();
+    } else {
+      exitAndroidCompanion();
+    }
+  }
+});
+
+// Check if launched with ?app=android or hash #android
+const urlParams = new URLSearchParams(window.location.search);
+if (urlParams.get("app") === "android" || window.location.hash === "#android") {
+  launchAndroidCompanion();
+}
+
