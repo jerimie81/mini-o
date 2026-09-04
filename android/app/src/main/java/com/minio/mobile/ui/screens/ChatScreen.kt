@@ -29,7 +29,6 @@ import kotlinx.coroutines.launch
 fun ChatScreen(vm: MiniOViewModel) {
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
-    var showModelMenu by remember { mutableStateOf(false) }
 
     LaunchedEffect(vm.chatMessages.size, vm.chatMessages.lastOrNull()?.content) {
         if (vm.chatMessages.isNotEmpty()) {
@@ -81,30 +80,6 @@ fun ChatScreen(vm: MiniOViewModel) {
                 }
 
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    // Model Dropdown Selector
-                    Box {
-                        AssistChip(
-                            onClick = { showModelMenu = true },
-                            label = { Text(vm.selectedModel.take(16), fontSize = 11.sp) },
-                            leadingIcon = { Icon(Icons.Rounded.Memory, contentDescription = "Model", modifier = Modifier.size(14.dp)) },
-                            colors = AssistChipDefaults.assistChipColors(labelColor = SecondaryTeal)
-                        )
-                        DropdownMenu(
-                            expanded = showModelMenu,
-                            onDismissRequest = { showModelMenu = false }
-                        ) {
-                            vm.availableModels.forEach { model ->
-                                DropdownMenuItem(
-                                    text = { Text(model.name) },
-                                    onClick = {
-                                        vm.selectModel(model.name)
-                                        showModelMenu = false
-                                    }
-                                )
-                            }
-                        }
-                    }
-
                     IconButton(onClick = { vm.createNewThread() }) {
                         Icon(Icons.Rounded.AddComment, contentDescription = "New Thread", tint = PrimaryBlue)
                     }

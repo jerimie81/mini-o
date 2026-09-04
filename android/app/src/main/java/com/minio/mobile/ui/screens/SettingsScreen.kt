@@ -27,6 +27,7 @@ fun SettingsScreen(vm: MiniOViewModel) {
     val context = LocalContext.current
     var showClearConfirm by remember { mutableStateOf(false) }
     var isTokenRevealed by remember { mutableStateOf(false) }
+    var showModelMenu by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -223,7 +224,28 @@ fun SettingsScreen(vm: MiniOViewModel) {
                     HorizontalDivider(color = BorderColor)
 
                     Text("Active Model:", color = TextMuted, fontSize = 13.sp)
-                    Text(vm.selectedModel, color = SecondaryTeal, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    Box {
+                        AssistChip(
+                            onClick = { showModelMenu = true },
+                            label = { Text(vm.selectedModel, fontSize = 13.sp) },
+                            leadingIcon = { Icon(Icons.Rounded.Memory, contentDescription = "Model", modifier = Modifier.size(16.dp)) },
+                            colors = AssistChipDefaults.assistChipColors(labelColor = SecondaryTeal)
+                        )
+                        DropdownMenu(
+                            expanded = showModelMenu,
+                            onDismissRequest = { showModelMenu = false }
+                        ) {
+                            vm.availableModels.forEach { model ->
+                                DropdownMenuItem(
+                                    text = { Text(model.name) },
+                                    onClick = {
+                                        vm.selectModel(model.name)
+                                        showModelMenu = false
+                                    }
+                                )
+                            }
+                        }
+                    }
 
                     Spacer(Modifier.height(4.dp))
 
