@@ -940,6 +940,22 @@ function getOllamaHost(): string {
   return process.env.OLLAMA_HOST || 'http://127.0.0.1:11434';
 }
 
+// Actual reachability probe. Callers must not assume Ollama is up just
+// because model listing/chat succeeded elsewhere via silent fallback.
+async function probeOllama(timeoutMs = 1500): Promise<{ reachable: boolean; host: string; error?: string }> {
+  const host = getOllamaHost();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const resp = await fetch(`${host}/api/version`, { signal: controller.signal });
+    clearTimeout(timeout);
+    return { reachable: resp.ok, host, error: resp.ok ? undefined : `HTTP ${resp.status}` };
+  } catch (err: any) {
+    clearTimeout(timeout);
+    return { reachable: false, host, error: err?.name === 'AbortError' ? 'timeout' : (err?.message || 'unreachable') };
+  }
+}
+
 async function getDynamicModelCatalog(): Promise<ModelCatalogItem[]> {
   // Start with a clone of the base catalog
   const catalogMap = new Map<string, ModelCatalogItem>();
@@ -1350,12 +1366,26 @@ async function executeTool(
 // Router factory
 function setupApiRoutes(router: express.Router) {
   // Health
-  router.get('/health', (_req, res) => {
-    res.json({ status: 'ok', ollama: 'online', timestamp: new Date().toISOString() });
+  router.get('/health', async (_req, res) => {
+    const ollama = await probeOllama();
+    res.json({
+      status: 'ok',
+      ollama: ollama.reachable ? 'online' : 'offline',
+      ollama_host: ollama.host,
+      ollama_error: ollama.error,
+      timestamp: new Date().toISOString(),
+    });
   });
 
-  router.get('/health/readiness', (_req, res) => {
-    res.json({ ready: true, mini_o: 'ready', ollama: 'ready' });
+  router.get('/health/readiness', async (_req, res) => {
+    const ollama = await probeOllama();
+    res.json({
+      ready: true, // Mini-O itself (this process) is up regardless of Ollama
+      mini_o: 'ready',
+      ollama: ollama.reachable ? 'ready' : 'unreachable',
+      ollama_host: ollama.host,
+      ollama_error: ollama.error,
+    });
   });
 
   // Diagnostics & Error Audit Logs

@@ -1232,7 +1232,18 @@ async function loadModels() {
     updateCurrentModelBadge();
     updateFavoriteButton();
     updateSendState();
-    setStatus("online", `Ready · ${models.length} model${models.length === 1 ? "" : "s"}`);
+
+    // Model list succeeds even when Ollama is unreachable (static catalog
+    // fallback in the backend), so it can't be used alone to prove the
+    // connection is live. Confirm against /api/health before claiming Ready.
+    const health = await api.health().catch(() => null);
+    const ollamaUp = health?.ollama === "online";
+    const usingOllamaModel = state.model && !state.model.startsWith("gemini");
+    if (!ollamaUp && usingOllamaModel) {
+      setStatus("degraded", `Ollama unreachable · ${models.length} model${models.length === 1 ? "" : "s"} (cached)`);
+    } else {
+      setStatus("online", `Ready · ${models.length} model${models.length === 1 ? "" : "s"}`);
+    }
   } catch (error) {
     if (error.name === "AbortError") return;
     if (select) select.innerHTML = "<option value=''>Model server offline</option>";
