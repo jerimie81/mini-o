@@ -1189,7 +1189,25 @@ async function executeTool(
   confirmedTools: string[] = []
 ): Promise<{ ok: boolean; output?: string; error?: string; requires_confirmation?: boolean; risk?: string; side_effects?: string[] }> {
   try {
-    const def = toolDefinitions.find(t => t.name === name);
+    let toolName = name;
+    let toolArgs = { ...args };
+    if (toolName === 'run_code' || toolName === 'exec_code') {
+      const codeStr = args.code || args.script || args.command || '';
+      if (args.code || codeStr.includes('import ') || codeStr.includes('def ') || codeStr.includes('print(')) {
+        toolName = 'run_python';
+        toolArgs = { code: codeStr };
+      } else {
+        toolName = 'run_shell';
+        toolArgs = { command: codeStr };
+      }
+    } else if (['shell', 'bash', 'execute_command', 'run_command'].includes(toolName)) {
+      toolName = 'run_shell';
+      toolArgs = { command: args.command || args.cmd || args.code || '' };
+    }
+
+    const def = toolDefinitions.find(t => t.name === toolName);
+    name = toolName;
+    args = toolArgs;
     if (!def) {
       return { ok: false, error: `Tool '${name}' is not recognized in the tool registry` };
     }
@@ -1623,6 +1641,16 @@ function setupApiRoutes(router: express.Router) {
     res.setHeader('Cache-Control', 'no-cache, no-transform');
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('X-Accel-Buffering', 'no');
+    if (typeof (res as any).flushHeaders === 'function') {
+      (res as any).flushHeaders();
+    }
+
+    const sendSSE = (event: string, data: any) => {
+      res.write(`event: ${event}\ndata: ${typeof data === 'string' ? data : JSON.stringify(data)}\n\n`);
+      if (typeof (res as any).flush === 'function') {
+        (res as any).flush();
+      }
+    };
 
     const convId = conversationId || conversation_id || `conv_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const enableTools = useTools !== undefined ? useTools : (use_tools !== undefined ? use_tools : true);
@@ -1645,7 +1673,7 @@ function setupApiRoutes(router: express.Router) {
       : basePersona;
 
     // Surface directive application immediately — never silent.
-    res.write(`event: agent_directives\ndata: ${JSON.stringify({ type: 'agent_directives', active: agentResult.active, sources: agentResult.sources })}\n\n`);
+    sendSSE('agent_directives', { type: 'agent_directives', active: agentResult.active, sources: agentResult.sources });
 
     try {
       const isGeminiModel = model?.startsWith('gemini') || (geminiClient && !model?.includes(':') && !model?.includes('llama') && !model?.includes('minimax') && !model?.includes('glm') && !model?.includes('gemma') && !model?.includes('qwen'));
@@ -1706,7 +1734,7 @@ function setupApiRoutes(router: express.Router) {
           // Check for grounding metadata
           const grounding = chunk.candidates?.[0]?.groundingMetadata;
           if (grounding?.groundingChunks?.length) {
-            res.write(`event: grounding\ndata: ${JSON.stringify({ type: 'grounding', ...grounding })}\n\n`);
+            sendSSE('grounding', { type: 'grounding', ...grounding });
           }
 
           // Check for function calls
@@ -1717,10 +1745,11 @@ function setupApiRoutes(router: express.Router) {
             }
           }
 
-          const text = chunk.text;
+          let text = '';
+          try { text = chunk.text || ''; } catch {}
           if (text) {
             assistantContent += text;
-            res.write(`event: token\ndata: ${JSON.stringify({ type: 'token', data: text, role: 'assistant', content: text })}\n\n`);
+            sendSSE('token', { type: 'token', data: text, role: 'assistant', content: text });
           }
         }
 
@@ -1728,9 +1757,9 @@ function setupApiRoutes(router: express.Router) {
         if (pendingFunctionCalls.length > 0) {
           const toolResultsParts: any[] = [];
           for (const fc of pendingFunctionCalls) {
-            res.write(`event: tool_call\ndata: ${JSON.stringify({ type: 'tool_call', name: fc.name, data: JSON.stringify(fc.args), args: fc.args })}\n\n`);
+            sendSSE('tool_call', { type: 'tool_call', name: fc.name, data: JSON.stringify(fc.args), args: fc.args });
             const tResult = await executeTool(fc.name, fc.args, confirmedList);
-            res.write(`event: tool_result\ndata: ${JSON.stringify({ type: 'tool_result', name: fc.name, data: tResult.output || tResult.error || 'ok', ...tResult })}\n\n`);
+            sendSSE('tool_result', { type: 'tool_result', name: fc.name, data: tResult.output || tResult.error || 'ok', ...tResult });
             toolResultsParts.push({
               functionResponse: {
                 name: fc.name,
@@ -1772,10 +1801,11 @@ function setupApiRoutes(router: express.Router) {
           }
 
           for await (const chunk of followUpStream) {
-            const text = chunk.text;
+            let text = '';
+            try { text = chunk.text || ''; } catch {}
             if (text) {
               assistantContent += text;
-              res.write(`event: token\ndata: ${JSON.stringify({ type: 'token', data: text, role: 'assistant', content: text })}\n\n`);
+              sendSSE('token', { type: 'token', data: text, role: 'assistant', content: text });
             }
           }
         }
@@ -2093,12 +2123,12 @@ You can interact with workspace files, configure tool policies, or send tasks to
       });
 
       const statsToSend = streamStats || { eval_count: Math.round(assistantContent.length / 4), total_duration: 450000000 };
-      res.write(`event: done\ndata: ${JSON.stringify({ type: 'done', done: true, stats: statsToSend, stop_reason: 'stop' })}\n\n`);
-      res.write(`event: end\ndata: ${JSON.stringify({ type: 'end', id: convId })}\n\n`);
+      sendSSE('done', { type: 'done', done: true, stats: statsToSend, stop_reason: 'stop' });
+      sendSSE('end', { type: 'end', id: convId });
       res.end();
     } catch (err: any) {
       const diag = logServerError(500, 'STREAM_FAILED', 'stream', err.message || 'Chat stream failed', 'Click Retry to restart generation', req);
-      res.write(`event: error\ndata: ${JSON.stringify({ type: 'error', data: err.message, error: 'Chat stream failed', detail: err.message, diagnostic_id: diag.id, action: diag.action })}\n\n`);
+      sendSSE('error', { type: 'error', data: err.message, error: 'Chat stream failed', detail: err.message, diagnostic_id: diag.id, action: diag.action });
       res.end();
     }
   };

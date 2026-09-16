@@ -405,6 +405,7 @@ class Chat {
         },
         this.controller.signal
       )) {
+        if (event.event === "error") throw (event.error || new Error(event.data?.detail || event.data?.error || "Stream error"));
         if (event.event === "token") this.appendToken(assistant, event.data.content || "");
         if (event.event === "grounding") this.addGroundingBlock(assistant, event.data);
         if (event.event === "tool_call") this.addToolBlock(assistant, event.data.name, event.data.args);
