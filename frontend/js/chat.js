@@ -64,7 +64,7 @@ class Chat {
 
   setStatus(status) {
     this.statusEl.className = `status-dot ${status}`;
-    const labels = { busy: "Generating response", online: "Ready", offline: "Connection error" };
+    const labels = { busy: "Generating response", online: "Ready", offline: "Connection error", degraded: "Ollama unreachable" };
     const label = labels[status] || "Checking connection";
     this.statusEl.setAttribute("aria-label", label);
     const statusText = document.getElementById("status-text");
