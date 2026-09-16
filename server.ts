@@ -207,6 +207,28 @@ function logServerError(
   return entry;
 }
 
+function formatCleanErrorMessage(rawMsg: string): string {
+  if (!rawMsg) return 'An unknown error occurred';
+  try {
+    if (rawMsg.includes('"error":') || rawMsg.includes('RESOURCE_EXHAUSTED') || rawMsg.includes('429')) {
+      const match = rawMsg.match(/\{[\s\S]*\}/);
+      if (match) {
+        const parsed = JSON.parse(match[0]);
+        const innerMsg = parsed.error?.message || parsed.message;
+        if (innerMsg) {
+          if (innerMsg.includes('Quota exceeded') || innerMsg.includes('429') || rawMsg.includes('RESOURCE_EXHAUSTED')) {
+            const retryMatch = innerMsg.match(/Please retry in ([\d\.]+s?)/i);
+            const waitTime = retryMatch ? ` Please retry in ${retryMatch[1]}.` : '';
+            return `Gemini API Rate Limit Exceeded (HTTP 429): Free tier limit of 20 requests/minute reached.${waitTime} You can switch to a local model (llama3.1 or qwen2.5) in the top model dropdown.`;
+          }
+          return innerMsg;
+        }
+      }
+    }
+  } catch {}
+  return rawMsg;
+}
+
 function formatErrorPayload(
   status: number,
   code: string,
@@ -2127,8 +2149,11 @@ You can interact with workspace files, configure tool policies, or send tasks to
       sendSSE('end', { type: 'end', id: convId });
       res.end();
     } catch (err: any) {
-      const diag = logServerError(500, 'STREAM_FAILED', 'stream', err.message || 'Chat stream failed', 'Click Retry to restart generation', req);
-      sendSSE('error', { type: 'error', data: err.message, error: 'Chat stream failed', detail: err.message, diagnostic_id: diag.id, action: diag.action });
+      const cleanMsg = formatCleanErrorMessage(err.message || 'Chat stream failed');
+      const is429 = (err.message || '').includes('429') || (err.message || '').includes('RESOURCE_EXHAUSTED');
+      const actionMsg = is429 ? 'Wait 60s or select a local model (llama3.1 / qwen2.5) from the model menu' : 'Click Retry to restart generation';
+      const diag = logServerError(is429 ? 429 : 500, is429 ? 'RATE_LIMIT_EXHAUSTED' : 'STREAM_FAILED', 'stream', cleanMsg, actionMsg, req, { raw_error: err.message });
+      sendSSE('error', { type: 'error', data: cleanMsg, error: cleanMsg, detail: cleanMsg, diagnostic_id: diag.id, action: diag.action });
       res.end();
     }
   };

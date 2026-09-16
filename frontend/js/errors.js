@@ -72,7 +72,21 @@ export function classifyError(error, defaultCategory = ERROR_CATEGORIES.REQUEST)
   let action = CATEGORY_ACTIONS[defaultCategory];
 
   // Specific heuristic classifications
-  if (error?.name === 'AbortError' || /abort|cancelled|interrupted/i.test(text)) {
+  if (status === 429 || /429|quota|resource_exhausted|rate limit|too many requests/i.test(text)) {
+    category = ERROR_CATEGORIES.MODEL;
+    code = 'RATE_LIMIT_EXHAUSTED';
+    action = 'Google Gemini free tier limit reached (20 req/min). Please wait 60s or switch to a local model (llama3.1 or qwen2.5).';
+    if (text.includes('{')) {
+      try {
+        const match = text.match(/\{[\s\S]*\}/);
+        if (match) {
+          const parsed = JSON.parse(match[0]);
+          const innerMsg = parsed.error?.message || parsed.message;
+          if (innerMsg) text = innerMsg;
+        }
+      } catch {}
+    }
+  } else if (error?.name === 'AbortError' || /abort|cancelled|interrupted/i.test(text)) {
     category = ERROR_CATEGORIES.STREAM;
     code = 'REQUEST_ABORTED';
     action = 'Generation was stopped or timed out. You can retry anytime.';
