@@ -42,7 +42,7 @@ function loadEnvFile() {
 }
 loadEnvFile();
 
-const DEFAULT_MODEL = process.env.DEFAULT_MODEL || 'minimax-m3:cloud';
+const DEFAULT_MODEL = process.env.DEFAULT_MODEL || 'llama3.1:latest';
 
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
@@ -553,23 +553,23 @@ const modelCatalog: ModelCatalogItem[] = [
     supports_options: ['temperature', 'top_p', 'top_k', 'num_predict'],
   },
   {
-    name: 'minimax-m3:cloud',
-    display_name: 'MiniMax M3 (Cloud / Ollama)',
-    family: 'minimax',
-    families: ['cloud', 'ollama', 'minimax'],
-    location: 'cloud',
+    name: 'llama3.1:latest',
+    display_name: 'Llama 3.1 (Local / Ollama)',
+    family: 'llama',
+    families: ['local', 'ollama', 'llama3'],
+    location: 'local',
     tier: 'free',
     pricing_tier: 'free',
-    pricing_badge: 'Free Cloud Tier',
-    pricing_description: 'Included default workspace model with cloud acceleration',
+    pricing_badge: 'Free Local Tier',
+    pricing_description: 'Included default workspace model',
     size: 0,
-    parameter_size: 'Cloud',
-    quantization_level: 'Cloud FP16',
+    parameter_size: '8B',
+    quantization_level: 'Q4_K_M',
     context_window: '128k tokens',
     modified_at: new Date().toISOString(),
-    capabilities: ['chat', 'streaming', 'tools', 'thinking', 'vision'],
-    use_cases: ['General reasoning', 'Cloud inference', 'Fast coding', 'Workspace assistant'],
-    description: 'Dedicated workspace assistant model with tool execution and fast cloud inference.',
+    capabilities: ['chat', 'streaming', 'tools', 'thinking'],
+    use_cases: ['Local offline usage', 'Workspace navigation'],
+    description: 'Default local model powered by Llama 3.1 running via Ollama.',
     installed: true,
     supports_options: ['temperature', 'top_p', 'top_k', 'seed', 'num_ctx', 'num_predict'],
   },
@@ -1651,7 +1651,10 @@ function setupApiRoutes(router: express.Router) {
       const isGeminiModel = model?.startsWith('gemini') || (geminiClient && !model?.includes(':') && !model?.includes('llama') && !model?.includes('minimax') && !model?.includes('glm') && !model?.includes('gemma') && !model?.includes('qwen'));
       const targetModel = model || DEFAULT_MODEL;
 
-      if (geminiClient && isGeminiModel) {
+      if (isGeminiModel) {
+        if (!geminiClient) {
+          throw new Error('GEMINI_API_KEY environment variable is not set. Cloud models are unavailable.');
+        }
         const contents: any[] = fullMessages
           .filter(m => m.role === 'user' || m.role === 'assistant')
           .map(m => ({
@@ -1751,6 +1754,7 @@ function setupApiRoutes(router: express.Router) {
         }
       } else {
         let ollamaSuccess = false;
+        let ollamaErrorMsg = '';
         // Try streaming inference directly from local/cloud Ollama with native tool execution
         try {
           const ollamaTools = toolDefinitions.map(t => ({
@@ -1814,7 +1818,11 @@ function setupApiRoutes(router: express.Router) {
             });
             clearTimeout(timeout);
 
-            if (!ollamaResp.ok || !ollamaResp.body) {
+            if (!ollamaResp.ok) {
+              const errBody = await ollamaResp.text();
+              throw new Error(`Ollama API error: ${ollamaResp.status} ${errBody}`);
+            }
+            if (!ollamaResp.body) {
               break;
             }
 
@@ -1948,6 +1956,7 @@ function setupApiRoutes(router: express.Router) {
             ];
           }
         } catch (ollamaErr: any) {
+          ollamaErrorMsg = ollamaErr.message || String(ollamaErr);
           ollamaSuccess = false;
         }
 
@@ -1956,9 +1965,10 @@ function setupApiRoutes(router: express.Router) {
           // There is no model in this loop, so AGENT.md CANNOT be applied
           // here — say so explicitly instead of silently pretending this
           // scripted stub is the orchestrated agent.
-          res.write(`event: degraded_mode\ndata: ${JSON.stringify({ type: 'degraded_mode', reason: 'ollama_unreachable', agent_directives_applied: false, agent_sources: agentResult.sources })}\n\n`);
+          const degradedReason = ollamaErrorMsg || 'ollama_unreachable';
+          res.write(`event: degraded_mode\ndata: ${JSON.stringify({ type: 'degraded_mode', reason: degradedReason, agent_directives_applied: false, agent_sources: agentResult.sources })}\n\n`);
           const degradedNotice = agentResult.active
-            ? `_Offline fallback active (Ollama unreachable) — AGENT.md directives from ${agentResult.sources.join(', ')} are NOT applied in this mode._\n\n`
+            ? `_Offline fallback active (${degradedReason}) — AGENT.md directives from ${agentResult.sources.join(', ')} are NOT applied in this mode._\n\n`
             : '';
           let simulatedReply = '';
           const lowerPrompt = lastUserMsg.toLowerCase();
@@ -1985,10 +1995,10 @@ function setupApiRoutes(router: express.Router) {
               simulatedReply = `I encountered an issue executing tool \`${toolRan.name}\`:\n> ${toolRan.result.error}\n\nYou can review Tool Policies in the Workspace tab.`;
             }
           } else if (lowerPrompt.includes('hello') || lowerPrompt.includes('hi') || lowerPrompt.includes('help')) {
-            simulatedReply = `Hello! I am your **Mini-O** AI workspace partner powered by MiniMax M3.
+            simulatedReply = `Hello! I am your **Mini-O** AI workspace partner powered by Llama 3.1.
 
 I can help you with:
-- **Fast Reasoning & Coding**: Powered by MiniMax M3 (Cloud / Ollama).
+- **Fast Reasoning & Coding**: Powered by Llama 3.1 (Local Ollama).
 - **Workspace Navigation & Tools**: Reading, listing, and editing files in \`./data\`.
 - **Project Assistance**: Full multi-turn conversation and workspace assistance.
 
@@ -1996,7 +2006,7 @@ How can I help you today?`;
           } else {
             simulatedReply = `I have processed your request: "${lastUserMsg.slice(0, 80)}".
 
-You can interact with workspace files, configure tool policies, or send tasks to MiniMax M3.`;
+You can interact with workspace files, configure tool policies, or send tasks to Llama 3.1.`;
           }
 
           // Stream simulated tokens
