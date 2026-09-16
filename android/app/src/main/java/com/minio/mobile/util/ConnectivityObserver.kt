@@ -34,14 +34,14 @@ class ConnectivityObserver(context: Context) {
         }
 
         val request = NetworkRequest.Builder()
-            .addCapability(NetworkCapabilities.NETCAPABILITY_INTERNET)
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
             .build()
 
         connectivityManager.registerNetworkCallback(request, callback)
 
         val currentNetwork = connectivityManager.activeNetwork
         val caps = connectivityManager.getNetworkCapabilities(currentNetwork)
-        val initialStatus = if (caps?.hasCapability(NetworkCapabilities.NETCAPABILITY_INTERNET) == true) {
+        val initialStatus = if (caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true) {
             NetworkStatus.AVAILABLE
         } else {
             NetworkStatus.UNAVAILABLE

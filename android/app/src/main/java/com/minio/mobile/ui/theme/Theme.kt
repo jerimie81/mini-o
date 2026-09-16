@@ -18,6 +18,7 @@ val PrimaryBlueHover = Color(0xFFA5BFFF)
 val SecondaryTeal = Color(0xFF5DE4C7)
 val AccentOrange = Color(0xFFFFAB70)
 val DangerRed = Color(0xFFFF8A8A)
+val StatusGreen = Color(0xFF4CAF50)
 
 val TextPrimary = Color(0xFFEAF0FA)
 val TextSecondary = Color(0xFFB5C2D4)
@@ -66,7 +67,7 @@ fun MiniOTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit
 ) {
-    val colorScheme = if (darkTheme) DarkColorScheme else DarkColorScheme // default dark modern workspace
+    val colorScheme = if (darkTheme) DarkColorScheme else DarkColorScheme
 
     MaterialTheme(
         colorScheme = colorScheme,

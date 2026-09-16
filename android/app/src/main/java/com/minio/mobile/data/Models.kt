@@ -53,9 +53,10 @@ data class ChatMessage(
 
 @Serializable
 data class StreamResponse(
-    val type: String, // "token", "tool_call", "tool_result", "error", "done"
+    val type: String = "token", // "token", "tool_call", "tool_result", "error", "done"
     val data: String? = null,
-    val name: String? = null
+    val name: String? = null,
+    val content: String? = null
 )
 
 @Serializable
@@ -70,11 +71,13 @@ data class ModelInfo(
 
 @Serializable
 data class ServerHealth(
-    val status: String,
-    val version: String,
+    val status: String = "ok",
+    val version: String = "1.0.0",
     val platform: String? = null,
     val host: String? = null,
-    val uptime: Double? = null
+    val uptime: Double? = null,
+    val ollama: String? = null,
+    val timestamp: String? = null
 )
 
 @Serializable
@@ -96,6 +99,28 @@ data class PlatformInfo(
     val isLinux: Boolean = false,
     val isDarwin: Boolean = false,
     val workspaceDir: String = ""
+)
+
+@Serializable
+data class SaveFileRequest(
+    val path: String,
+    val content: String,
+    val expected_modified: Double? = null
+)
+
+@Serializable
+data class FileOperationRequest(
+    val operation: String,
+    val path: String,
+    val target: String? = null
+)
+
+@Serializable
+data class ChatRequest(
+    val model: String,
+    val messages: List<ChatMessage>,
+    val conversationId: String? = null,
+    val useTools: Boolean = false
 )
 
 enum class ScreenTab {

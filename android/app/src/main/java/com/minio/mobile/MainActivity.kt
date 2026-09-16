@@ -43,8 +43,11 @@ import kotlinx.coroutines.delay
 import java.io.File
 
 class MainActivity : ComponentActivity() {
+    private var pendingIntent by mutableStateOf<android.content.Intent?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        pendingIntent = intent
         
         // FLAG_SECURE to prevent screenshots/recording on credential entry screens
         window.setFlags(
@@ -54,9 +57,15 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             MiniOTheme {
-                MiniOMainApp()
+                MiniOMainApp(intent = pendingIntent)
             }
         }
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        pendingIntent = intent
     }
 }
 
@@ -79,7 +88,7 @@ fun isDeviceRooted(): Boolean {
 }
 
 @Composable
-fun MiniOMainApp() {
+fun MiniOMainApp(intent: android.content.Intent? = null) {
     val context = LocalContext.current
     val vm: MiniOViewModel = viewModel(factory = MiniOViewModelFactory(context))
 
@@ -127,9 +136,33 @@ fun MiniOMainApp() {
     }
 
     val activeProfile = vm.connectionProfiles.find { it.id == vm.activeConnectionId }
-    var urlInput by remember(activeProfile) { mutableStateOf(activeProfile?.url ?: "http://10.0.2.2:3000") }
+    var urlInput by remember(activeProfile) { mutableStateOf(activeProfile?.url ?: "http://127.0.0.1:3000") }
     var tokenInput by remember(activeProfile) { mutableStateOf(activeProfile?.token ?: "") }
-    var nameInput by remember(activeProfile) { mutableStateOf(activeProfile?.name ?: "Default") }
+    var nameInput by remember(activeProfile) { mutableStateOf(activeProfile?.name ?: "ADB Localhost") }
+
+    LaunchedEffect(intent) {
+        if (intent != null) {
+            val pairingStr = intent.getStringExtra("pairing")
+            if (!pairingStr.isNullOrBlank()) {
+                vm.parseAndApplyQrPayload(pairingStr) { profile ->
+                    urlInput = profile.url
+                    tokenInput = profile.token
+                    nameInput = profile.name
+                    vm.connect(profile.url, profile.token, profile.name)
+                }
+            } else {
+                val intentUrl = intent.getStringExtra("url")
+                val intentToken = intent.getStringExtra("token")
+                val intentName = intent.getStringExtra("name") ?: "ADB Preset"
+                if (!intentUrl.isNullOrBlank()) {
+                    urlInput = intentUrl
+                    if (intentToken != null) tokenInput = intentToken
+                    nameInput = intentName
+                    vm.connect(intentUrl, intentToken ?: "", intentName)
+                }
+            }
+        }
+    }
 
     // Auto toast dismiss
     LaunchedEffect(vm.notificationMessage) {

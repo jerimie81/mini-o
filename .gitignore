@@ -36,3 +36,9 @@ PROJECT_PROGRESS.md
 
 node_modules/
 dist/
+
+# Build artifacts
+android/.kotlin/
+clients/android-studio/.gradle/
+clients/android-studio/build/
+

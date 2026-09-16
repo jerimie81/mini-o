@@ -183,7 +183,7 @@ fun ConnectScreen(
             Spacer(Modifier.height(16.dp))
         }
 
-        // Quick Preset Chips
+        // Quick Preset Chips & Saved Profiles
         Text(
             "Quick Connection Presets:",
             color = TextSecondary,
@@ -196,21 +196,95 @@ fun ConnectScreen(
             modifier = Modifier.fillMaxWidth()
         ) {
             SuggestionChip(
-                onClick = { onUrlChange("http://10.0.2.2:3000") },
-                label = { Text("Emulator (10.0.2.2)") },
+                onClick = {
+                    onUrlChange("http://127.0.0.1:3000")
+                    onNameChange("ADB Localhost")
+                    onConnect()
+                },
+                label = { Text("ADB (127.0.0.1:3000)") },
                 colors = SuggestionChipDefaults.suggestionChipColors(
                     containerColor = SurfaceRaised,
-                    labelColor = TextSecondary
+                    labelColor = PrimaryBlue
                 )
             )
             SuggestionChip(
-                onClick = { onUrlChange("http://127.0.0.1:3000") },
-                label = { Text("Localhost") },
+                onClick = {
+                    onUrlChange("http://10.0.0.86:3000")
+                    onNameChange("Host LAN")
+                    onConnect()
+                },
+                label = { Text("LAN (10.0.0.86:3000)") },
+                colors = SuggestionChipDefaults.suggestionChipColors(
+                    containerColor = SurfaceRaised,
+                    labelColor = SecondaryTeal
+                )
+            )
+            SuggestionChip(
+                onClick = {
+                    onUrlChange("http://10.0.2.2:3000")
+                    onNameChange("Emulator")
+                    onConnect()
+                },
+                label = { Text("Emulator") },
                 colors = SuggestionChipDefaults.suggestionChipColors(
                     containerColor = SurfaceRaised,
                     labelColor = TextSecondary
                 )
             )
+        }
+
+        if (vm != null && vm.connectionProfiles.isNotEmpty()) {
+            Spacer(Modifier.height(16.dp))
+            Text(
+                "Saved Connection Profiles (${vm.connectionProfiles.size}):",
+                color = TextSecondary,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(Modifier.height(8.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                vm.connectionProfiles.forEach { profile ->
+                    Surface(
+                        color = SurfacePanel,
+                        shape = RoundedCornerShape(10.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, BorderColor),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(profile.name, fontWeight = FontWeight.Bold, color = TextPrimary, fontSize = 13.sp)
+                                Text(profile.url, color = PrimaryBlue, fontSize = 11.sp)
+                                if (profile.token.isNotBlank()) {
+                                    Text("🔑 Bearer Token configured", color = SecondaryTeal, fontSize = 10.sp)
+                                }
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                IconButton(onClick = { vm.forgetServer(profile.id) }) {
+                                    Icon(Icons.Rounded.DeleteOutline, contentDescription = "Forget", tint = DangerRed, modifier = Modifier.size(18.dp))
+                                }
+                                Button(
+                                    onClick = {
+                                        onUrlChange(profile.url)
+                                        onTokenChange(profile.token)
+                                        onNameChange(profile.name)
+                                        onConnect()
+                                    },
+                                    shape = RoundedCornerShape(8.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryBlue, contentColor = Color(0xFF001A4E))
+                                ) {
+                                    Text("Quick Connect", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         Spacer(Modifier.height(16.dp))

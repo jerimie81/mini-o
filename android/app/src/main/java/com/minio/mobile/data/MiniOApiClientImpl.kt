@@ -214,7 +214,7 @@ class MiniOApiClientImpl(
         try {
             validatePath(path)
             retry {
-                val payload = mapOf("path" to path, "content" to content, "expected_modified" to expectedModified)
+                val payload = SaveFileRequest(path = path, content = content, expected_modified = expectedModified)
                 val reqBody = jsonParser.encodeToString(payload).toRequestBody(jsonMediaType)
                 val req = newRequestBuilder("/api/files/content").post(reqBody).build()
                 client.newCall(req).awaitResponse().use { res ->
@@ -235,8 +235,7 @@ class MiniOApiClientImpl(
             validatePath(srcPath)
             dstPath?.let { validatePath(it) }
             retry {
-                val payload = mutableMapOf("operation" to operation, "path" to srcPath)
-                if (dstPath != null) payload["target"] = dstPath
+                val payload = FileOperationRequest(operation = operation, path = srcPath, target = dstPath)
                 val reqBody = jsonParser.encodeToString(payload).toRequestBody(jsonMediaType)
                 val req = newRequestBuilder("/api/files/operation").post(reqBody).build()
                 client.newCall(req).awaitResponse().use { res ->
@@ -263,11 +262,11 @@ class MiniOApiClientImpl(
         onError: (String) -> Unit
     ) = withContext(Dispatchers.IO) {
         try {
-            val payload = mapOf(
-                "model" to model,
-                "messages" to messages,
-                "conversationId" to conversationId,
-                "useTools" to useTools
+            val payload = ChatRequest(
+                model = model,
+                messages = messages,
+                conversationId = conversationId,
+                useTools = useTools
             )
             val reqBody = jsonParser.encodeToString(payload).toRequestBody(jsonMediaType)
             val req = newRequestBuilder("/api/chat").post(reqBody).build()
@@ -292,10 +291,10 @@ class MiniOApiClientImpl(
                                 val msg = jsonParser.decodeFromString<StreamResponse>(buffer.toString())
                                 buffer.clear()
                                 when (msg.type) {
-                                    "token" -> msg.data?.let { onToken(it) }
+                                    "token" -> (msg.data ?: msg.content)?.let { onToken(it) }
                                     "tool_call" -> msg.name?.let { onToolCall(it, msg.data ?: "") }
                                     "tool_result" -> msg.name?.let { onToolResult(it, msg.data ?: "") }
-                                    "error" -> onError(msg.data ?: "Unknown error")
+                                    "error" -> onError(msg.data ?: msg.content ?: "Unknown error")
                                     "done" -> { onDone(); return@forEachLine }
                                 }
                             } catch (e: Exception) {
