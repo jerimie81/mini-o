@@ -1,7 +1,7 @@
 export function migratePreferences(storage) {
   const currentModel = storage.getItem("mini-o.model");
-  if (!currentModel || currentModel.startsWith("gemini") || currentModel !== "minimax-m3:cloud") {
-    storage.setItem("mini-o.model", "minimax-m3:cloud");
+  if (!currentModel) {
+    storage.setItem("mini-o.model", "gemini-3.7-flash");
   }
   if (storage.getItem("mini-o.preferences-version") === "2") return false;
   const legacy = [["mini-o.selected-model", "mini-o.model"], ["mini-o.dark-mode", "mini-o.theme"]];

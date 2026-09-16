@@ -42,7 +42,7 @@ function loadEnvFile() {
 }
 loadEnvFile();
 
-const DEFAULT_MODEL = process.env.DEFAULT_MODEL || 'llama3.1:latest';
+const DEFAULT_MODEL = process.env.DEFAULT_MODEL || 'gemini-3.7-flash';
 
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
@@ -53,7 +53,7 @@ app.use(express.json({ limit: '15mb' }));
 // Shared server-side Gemini client with official telemetry User-Agent
 let geminiClientInstance: GoogleGenAI | null = null;
 function getGeminiClient(): GoogleGenAI | null {
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
   if (!apiKey) return null;
   if (!geminiClientInstance) {
     geminiClientInstance = new GoogleGenAI({
@@ -984,25 +984,25 @@ async function getDynamicModelCatalog(): Promise<ModelCatalogItem[]> {
             if (om.details?.quantization_level) existing.quantization_level = om.details.quantization_level;
             if (om.modified_at) existing.modified_at = om.modified_at;
           } else {
-            // Add dynamically discovered local model from Ollama
+            // Add dynamically discovered model from Ollama
             catalogMap.set(rawName, {
               name: rawName,
-              display_name: `${rawName} (Installed Local)`,
+              display_name: isCloud ? `${rawName} (Ollama Cloud)` : `${rawName} (Installed Local)`,
               family: om.details?.family || 'ollama',
               families: om.details?.families || ['ollama'],
               location: isCloud ? 'cloud' : 'local',
-              tier: 'free',
-              pricing_tier: 'free',
-              pricing_badge: isCloud ? 'Cloud' : '100% Free (Installed)',
-              pricing_description: isCloud ? 'Cloud API' : 'Locally installed in Ollama runtime',
+              tier: isCloud ? 'paid' : 'free',
+              pricing_tier: isCloud ? 'paid' : 'free',
+              pricing_badge: isCloud ? 'Ollama Cloud (Credits)' : '100% Free (Installed)',
+              pricing_description: isCloud ? 'Cloud model via Ollama (requires subscription or usage credits)' : 'Locally installed in Ollama runtime',
               size: om.size || 0,
               parameter_size: om.details?.parameter_size || (isCloud ? 'Cloud' : 'Local'),
               quantization_level: om.details?.quantization_level || '',
               context_window: '32k tokens',
               modified_at: om.modified_at || new Date().toISOString(),
-              capabilities: ['chat', 'streaming', 'tools', 'local-privacy'],
-              use_cases: ['Custom local inference', 'Offline tasks'],
-              description: `Installed model on local Ollama server (${rawName}).`,
+              capabilities: isCloud ? ['chat', 'streaming', 'cloud'] : ['chat', 'streaming', 'tools', 'local-privacy'],
+              use_cases: isCloud ? ['Cloud AI inference via Ollama'] : ['Custom local inference', 'Offline tasks'],
+              description: isCloud ? `Ollama Cloud model (${rawName}) — requires subscription or usage credits.` : `Installed model on local Ollama server (${rawName}).`,
               installed: true,
               supports_options: ['temperature', 'top_p', 'top_k', 'seed', 'num_ctx', 'num_predict'],
             });
@@ -1674,15 +1674,31 @@ function setupApiRoutes(router: express.Router) {
           toolsConfig.push({ functionDeclarations: geminiFunctionDeclarations });
         }
 
-        // Call Gemini generateContentStream
-        const streamResult = await geminiClient.models.generateContentStream({
-          model: targetModel.startsWith('gemini') ? targetModel : 'gemini-3.7-flash',
-          contents,
-          config: {
-            systemInstruction: agentInstructions,
-            tools: toolsConfig.length > 0 ? toolsConfig : undefined,
-          },
-        });
+        // Call Gemini generateContentStream with automatic fallback on 503 high demand
+        let streamResult;
+        try {
+          streamResult = await geminiClient.models.generateContentStream({
+            model: targetModel.startsWith('gemini') ? targetModel : 'gemini-2.5-flash',
+            contents,
+            config: {
+              systemInstruction: agentInstructions,
+              tools: toolsConfig.length > 0 ? toolsConfig : undefined,
+            },
+          });
+        } catch (geminiErr: any) {
+          if (targetModel !== 'gemini-2.5-flash') {
+            streamResult = await geminiClient.models.generateContentStream({
+              model: 'gemini-2.5-flash',
+              contents,
+              config: {
+                systemInstruction: agentInstructions,
+                tools: toolsConfig.length > 0 ? toolsConfig : undefined,
+              },
+            });
+          } else {
+            throw geminiErr;
+          }
+        }
 
         const pendingFunctionCalls: any[] = [];
 
@@ -1736,13 +1752,24 @@ function setupApiRoutes(router: express.Router) {
             },
           ];
 
-          const followUpStream = await geminiClient.models.generateContentStream({
-            model: targetModel.startsWith('gemini') ? targetModel : 'gemini-3.7-flash',
-            contents: followUpContents,
-            config: {
-              systemInstruction: agentInstructions,
-            },
-          });
+          let followUpStream;
+          try {
+            followUpStream = await geminiClient.models.generateContentStream({
+              model: targetModel.startsWith('gemini') ? targetModel : 'gemini-2.5-flash',
+              contents: followUpContents,
+              config: {
+                systemInstruction: agentInstructions,
+              },
+            });
+          } catch {
+            followUpStream = await geminiClient.models.generateContentStream({
+              model: 'gemini-2.5-flash',
+              contents: followUpContents,
+              config: {
+                systemInstruction: agentInstructions,
+              },
+            });
+          }
 
           for await (const chunk of followUpStream) {
             const text = chunk.text;
@@ -1974,7 +2001,35 @@ function setupApiRoutes(router: express.Router) {
           const lowerPrompt = lastUserMsg.toLowerCase();
           let toolRan: { name: string; args: any; result: any } | null = null;
 
-          if (enableTools && (lowerPrompt.includes('list') || lowerPrompt.includes('files') || lowerPrompt.includes('workspace'))) {
+          if (ollamaErrorMsg) {
+            if (ollamaErrorMsg.includes('402')) {
+              simulatedReply = `### Model Access Error (HTTP 402 Payment Required)
+
+The requested model \`${targetModel}\` is an Ollama Cloud model requiring an active subscription or usage credits.
+
+**How to resolve:**
+- **Add Credits / Upgrade**: Visit [ollama.com/upgrade](https://ollama.com/upgrade) or manage settings at [ollama.com/settings](https://ollama.com/settings).
+- **Switch Model**: Select a locally installed model such as \`llama3.1:latest\`, \`qwen2.5:0.5b\`, or \`gemma4:E4B\` from the top model selector dropdown.`;
+            } else if (ollamaErrorMsg.includes('404')) {
+              simulatedReply = `### Model Not Found (HTTP 404)
+
+The model \`${targetModel}\` is not installed on your local Ollama runtime.
+
+**How to resolve:**
+- **Pull Model**: Open your terminal and run \`ollama pull ${targetModel}\`.
+- **Switch Model**: Select an installed model from the dropdown menu above.`;
+            } else {
+              simulatedReply = `### Model Execution Error
+
+An error occurred while executing model \`${targetModel}\` via Ollama:
+
+> \`${ollamaErrorMsg}\`
+
+**How to resolve:**
+- Verify your Ollama service is running properly (\`ollama list\`).
+- Select a different model from the model selector above.`;
+            }
+          } else if (enableTools && (lowerPrompt.includes('list') || lowerPrompt.includes('files') || lowerPrompt.includes('workspace'))) {
             const tArgs = { path: '.' };
             res.write(`event: tool_call\ndata: ${JSON.stringify({ type: 'tool_call', name: 'list_files', data: JSON.stringify(tArgs), args: tArgs })}\n\n`);
             const tResult = await executeTool('list_files', tArgs, confirmedList);
@@ -1988,25 +2043,25 @@ function setupApiRoutes(router: express.Router) {
             toolRan = { name: 'read_file', args: tArgs, result: tResult };
           }
 
-          if (toolRan) {
+          if (!simulatedReply && toolRan) {
             if (toolRan.result.ok) {
               simulatedReply = `I have inspected your workspace.\n\nHere is what I found:\n\`\`\`json\n${toolRan.result.output || ''}\n\`\`\`\n\nHow would you like to proceed with your project files?`;
             } else {
               simulatedReply = `I encountered an issue executing tool \`${toolRan.name}\`:\n> ${toolRan.result.error}\n\nYou can review Tool Policies in the Workspace tab.`;
             }
-          } else if (lowerPrompt.includes('hello') || lowerPrompt.includes('hi') || lowerPrompt.includes('help')) {
-            simulatedReply = `Hello! I am your **Mini-O** AI workspace partner powered by Llama 3.1.
+          } else if (!simulatedReply && (lowerPrompt.includes('hello') || lowerPrompt.includes('hi') || lowerPrompt.includes('help'))) {
+            simulatedReply = `Hello! I am your **Mini-O** AI workspace partner.
 
 I can help you with:
-- **Fast Reasoning & Coding**: Powered by Llama 3.1 (Local Ollama).
-- **Workspace Navigation & Tools**: Reading, listing, and editing files in \`./data\`.
+- **Fast Reasoning & Coding**: Powered by local Ollama models or Gemini Cloud.
+- **Workspace Navigation & Tools**: Reading, listing, and editing workspace files.
 - **Project Assistance**: Full multi-turn conversation and workspace assistance.
 
 How can I help you today?`;
-          } else {
+          } else if (!simulatedReply) {
             simulatedReply = `I have processed your request: "${lastUserMsg.slice(0, 80)}".
 
-You can interact with workspace files, configure tool policies, or send tasks to Llama 3.1.`;
+You can interact with workspace files, configure tool policies, or send tasks to an active model.`;
           }
 
           // Stream simulated tokens
@@ -2053,7 +2108,7 @@ You can interact with workspace files, configure tool policies, or send tasks to
 
   // Dedicated Gemini Endpoints
   router.get('/gemini/status', (_req, res) => {
-    const hasKey = Boolean(process.env.GEMINI_API_KEY);
+    const hasKey = Boolean(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY);
     res.json({
       available: hasKey,
       default_model: 'gemini-3.7-flash',

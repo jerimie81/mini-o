@@ -24,7 +24,7 @@ const storage = {
 migratePreferenceSchema(localStorage);
 
 const state = {
-  model: storage.get("model", "minimax-m3:cloud"),
+  model: storage.get("model", "gemini-3.7-flash"),
   modelLocationFilter: storage.get("model-location-filter", "all"),
   modelTierFilter: storage.get("model-tier-filter", "all"),
   availableModels: [],
@@ -1220,8 +1220,9 @@ async function loadModels() {
     }
 
     if (!state.model || !models.some(m => m.name === state.model)) {
-      const preferred = models.find(m => m.name === "minimax-m3:cloud") ||
-                        models.find(m => m.name.startsWith("gemini-2.5-flash")) ||
+      const preferred = models.find(m => m.name === "gemini-3.7-flash") ||
+                        models.find(m => m.name.startsWith("gemini")) ||
+                        models.find(m => m.name === "llama3.1:latest") ||
                         models[0];
       if (preferred) {
         state.model = preferred.name;
