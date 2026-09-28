@@ -7,6 +7,27 @@ FileEditorScreen, SettingsScreen, Theme, Models, build.gradle.kts).
 
 Current state: Fully updated, production-grade Android application complete with repository pattern, local persistence, encrypted profile storage, resilient streaming network client, multi-thread chat management, voice assistant integration, file editor with dirty-state safety, and diagnostics.
 
+## Session Handoff — 2026-09-28
+
+### Completed this session
+
+- Reworked the Node/Express server's filesystem boundary: `..` paths are no longer silently rewritten into the current workspace. An external path now produces a structured directory-permission request instead.
+- Added a request-scoped Allow/Deny dialog in the web chat. On Allow, Mini-O retries the turn with access limited to the selected directory for that request; on Deny, it states that no directory/tool access occurred.
+- Made file writes, shell execution, and Python execution confirmation-gated by default. These approvals are also request-scoped in the chat UI.
+- Made configured workspace roots real server policy: they are loaded, returned by the API, applied to path checks, and persisted in `~/.mini-o.json`.
+- Removed the misleading scripted “offline fallback” answer path from failed Ollama turns. Empty Ollama completions now fail explicitly and are retryable, while stuck streams have configurable connection and idle deadlines (`OLLAMA_CONNECT_TIMEOUT_MS`, `OLLAMA_STREAM_IDLE_TIMEOUT_MS`).
+- Changed the default model preference to local `llama3.1:latest`; when a saved cloud/Gemini selection is unavailable, the UI now selects an installed local model instead of sending a doomed cloud request.
+- Verified static checks: `npm run lint`, `node --check frontend/js/chat.js`, `node --check frontend/js/api.js`, `git diff --check`, and `npm run build` all passed.
+- Verified Ollama was reachable and that the installed `qwen2.5:0.5b` model produced a valid streamed response. Its minimal direct response took about 25 seconds, so a short browser/client timeout can still look like a Mini-O failure even when the model is healthy.
+
+### Next work
+
+- Complete a browser end-to-end check of the new permission dialog using the requested sibling project, `../DartVector`: confirm that its first tool access shows the dialog, Allow resumes the task, and Deny performs no access.
+- Add automated server and browser tests for external-root denial, one-turn approval, denied access, configured allowed roots, empty model output, and stream-idle timeout behavior.
+- Replace the remaining unreachable legacy fallback block in `server.ts` with a compact, explicit model-error path, then re-run the static checks.
+- Investigate model startup/queue latency in the Web UI. Keep streaming client/proxy deadlines above the observed local first-token time, expose the active deadlines in diagnostics, and distinguish “model is loading” from “model timed out.”
+- Begin the requested DartVector improvement task only after the directory dialog is accepted; inspect its README/TODO/tests first and make changes within that approved scope.
+
 ---
 
 ## 1. Architecture & Testability

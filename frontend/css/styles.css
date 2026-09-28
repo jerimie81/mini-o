@@ -434,6 +434,8 @@ select, input, textarea { background: var(--surface-raised); border: 1px solid v
 .tool-block pre { margin: 0; max-height: 60vh; overflow: auto; border-radius: 0; padding: 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .approval-card { margin-top: 8px; padding: 10px; border: 1px solid var(--warning); border-radius: var(--radius-sm); background: var(--accent-soft); font-size: 12px; }
 .approval-card p { color: var(--text-muted); margin: 5px 0; } .approval-card pre { margin: 6px 0; max-height: 140px; overflow: auto; white-space: pre-wrap; }
+.permission-request .permission-target { display: block; margin: 10px 0; padding: 10px; overflow-wrap: anywhere; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-raised); color: var(--text); }
+.permission-request pre { max-height: 180px; overflow: auto; white-space: pre-wrap; }
 .raw-response { margin: 8px 0 0; padding: 10px; max-height: 70vh; overflow: auto; white-space: pre-wrap; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-raised); font: 12px/1.5 var(--mono); }
 .error-details { margin-top: 8px; color: var(--text-muted); font-size: 11px; } .error-details pre { max-height: 50vh; overflow: auto; white-space: pre-wrap; }
 .research-sources { max-height: 220px; overflow: auto; margin-top: 10px; } .research-sources article { padding: 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); margin: 6px 0; } .research-sources a { display: block; color: var(--accent); font-size: 11px; overflow-wrap: anywhere; } .research-sources p { color: var(--text-muted); font-size: 11px; }
@@ -2010,4 +2012,3 @@ body.resizing-panels iframe, body.resizing-panels textarea { pointer-events: non
   font-size: 32px;
   margin-bottom: 8px;
 }
-

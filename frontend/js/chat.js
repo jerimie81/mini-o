@@ -349,6 +349,47 @@ class Chat {
     assistant.querySelector(".retry-message").classList.remove("hidden");
   }
 
+  requestPermission(data) {
+    return new Promise(resolve => {
+      const modal = document.getElementById("modal");
+      const card = document.createElement("div");
+      card.className = "modal-card permission-request";
+      const title = document.createElement("h3");
+      const directoryRequest = data.type === "directory_permission_required";
+      title.textContent = directoryRequest ? "Allow directory access?" : "Allow tool execution?";
+      const explanation = document.createElement("p");
+      explanation.textContent = directoryRequest
+        ? "Mini-O needs access to this directory before it can continue the task:"
+        : `Mini-O wants to run ${data.tool || "a tool"} before it can continue.`;
+      const target = document.createElement("code");
+      target.className = "permission-target";
+      target.textContent = directoryRequest ? (data.directory || "Unknown directory") : (data.tool || "Unknown tool");
+      const detail = document.createElement("pre");
+      detail.textContent = JSON.stringify(data.args || {}, null, 2);
+      const actions = document.createElement("div");
+      actions.className = "modal-actions";
+      const deny = document.createElement("button");
+      deny.type = "button";
+      deny.className = "secondary";
+      deny.textContent = "Deny";
+      const allow = document.createElement("button");
+      allow.type = "button";
+      allow.className = "primary";
+      allow.textContent = "Allow once";
+      const finish = allowed => {
+        modal.classList.add("hidden");
+        resolve(allowed);
+      };
+      deny.onclick = () => finish(false);
+      allow.onclick = () => finish(true);
+      actions.append(deny, allow);
+      card.append(title, explanation, target, detail, actions);
+      modal.replaceChildren(card);
+      modal.classList.remove("hidden");
+      deny.focus();
+    });
+  }
+
   async send() {
     const text = this.input.value.trim();
     if (!text) return;
@@ -390,38 +431,72 @@ class Chat {
       assistant = this.addMessage("assistant", "");
       this.retryText = text;
 
-      const confirmed = JSON.parse(localStorage.getItem("mini-o.confirmedTools") || "[]");
+      // Grants are deliberately per-send. A page refresh, a new send, or a
+      // denied request never silently inherits access to another directory.
+      const confirmed = [];
+      const approvedRoots = [];
       const enabledTools = JSON.parse(localStorage.getItem("mini-o.enabled-tools") || "null");
 
-      for await (const event of api.streamChat(
-        {
-          model: this.state.model,
-          messages: this.state.messages,
-          conversation_id: this.state.conversationId,
-          options: this.state.options,
-          use_tools: this.state.useTools,
-          enabled_tools: enabledTools,
-          confirmed_tools: confirmed,
-        },
-        this.controller.signal
-      )) {
-        if (event.event === "error") throw (event.error || new Error(event.data?.detail || event.data?.error || "Stream error"));
-        if (event.event === "token") this.appendToken(assistant, event.data.content || "");
-        if (event.event === "grounding") this.addGroundingBlock(assistant, event.data);
-        if (event.event === "tool_call") this.addToolBlock(assistant, event.data.name, event.data.args);
-        if (event.event === "approval_required") this.addApprovalBlock(assistant, event.data);
-        if (event.event === "tool_result") {
-          const blocks = assistant.querySelectorAll(".tool-block");
-          if (blocks.length > 0) this.updateToolResult(blocks[blocks.length - 1], event.data);
+      let completed = false;
+      while (!completed) {
+        let retryAfterPermission = false;
+        for await (const event of api.streamChat(
+          {
+            model: this.state.model,
+            messages: this.state.messages,
+            conversation_id: this.state.conversationId,
+            options: this.state.options,
+            use_tools: this.state.useTools,
+            enabled_tools: enabledTools,
+            confirmed_tools: confirmed,
+            approved_roots: approvedRoots,
+          },
+          this.controller.signal
+        )) {
+          if (event.event === "error") throw (event.error || new Error(event.data?.detail || event.data?.error || "Stream error"));
+          if (event.event === "token") this.appendToken(assistant, event.data.content || "");
+          if (event.event === "grounding") this.addGroundingBlock(assistant, event.data);
+          if (event.event === "tool_call") this.addToolBlock(assistant, event.data.name, event.data.args);
+          if (event.event === "approval_required") this.addApprovalBlock(assistant, event.data);
+          if (event.event === "tool_result") {
+            const blocks = assistant.querySelectorAll(".tool-block");
+            if (blocks.length > 0) this.updateToolResult(blocks[blocks.length - 1], event.data);
+          }
+          if (event.event === "permission_required") {
+            const allowed = await this.requestPermission(event.data);
+            if (!allowed) {
+              const contentEl = assistant.querySelector(".content");
+              const message = "Permission denied. Mini-O did not access the requested directory or run the requested tool.";
+              contentEl.dataset.raw = `${contentEl.dataset.raw || ""}${contentEl.dataset.raw ? "\n\n" : ""}${message}`;
+              contentEl.innerHTML = renderMarkdown(contentEl.dataset.raw);
+              this.announce("Permission denied");
+              completed = true;
+              break;
+            }
+            if (event.data.type === "directory_permission_required" && event.data.directory) {
+              approvedRoots.push(event.data.directory);
+            } else if (event.data.tool) {
+              confirmed.push(event.data.tool);
+            }
+            const contentEl = assistant.querySelector(".content");
+            contentEl.dataset.raw = "";
+            contentEl.innerHTML = "";
+            assistant.querySelector(".tool-blocks").replaceChildren();
+            retryAfterPermission = true;
+            break;
+          }
+          if (event.event === "done" && event.data.stats) this.addStats(assistant, event.data.stats, event.data.stop_reason);
+          if (event.event === "end" && event.data.id && !event.data.needs_permission) {
+            this.state.conversationId = event.data.id;
+            this.state.messages.push({
+              role: "assistant",
+              content: assistant.querySelector(".content").dataset.raw || "",
+            });
+            completed = true;
+          }
         }
-        if (event.event === "done" && event.data.stats) this.addStats(assistant, event.data.stats, event.data.stop_reason);
-        if (event.event === "end" && event.data.id) {
-          this.state.conversationId = event.data.id;
-          this.state.messages.push({
-            role: "assistant",
-            content: assistant.querySelector(".content").dataset.raw || "",
-          });
-        }
+        if (retryAfterPermission) continue;
+        if (!completed) completed = true;
       }
     } catch (error) {
       if (assistant && error.name === "AbortError") {

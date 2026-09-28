@@ -24,7 +24,7 @@ const storage = {
 migratePreferenceSchema(localStorage);
 
 const state = {
-  model: storage.get("model", "gemini-3.7-flash"),
+  model: storage.get("model", "llama3.1:latest"),
   modelLocationFilter: storage.get("model-location-filter", "all"),
   modelTierFilter: storage.get("model-tier-filter", "all"),
   availableModels: [],
@@ -1219,10 +1219,15 @@ async function loadModels() {
       appendGroup("💻 Local Models · Free Open-Weights", localModels);
     }
 
-    if (!state.model || !models.some(m => m.name === state.model)) {
-      const preferred = models.find(m => m.name === "gemini-3.7-flash") ||
-                        models.find(m => m.name.startsWith("gemini")) ||
-                        models.find(m => m.name === "llama3.1:latest") ||
+    const selectedModel = models.find(m => m.name === state.model);
+    // Do not keep an old cloud preference when its provider is unavailable.
+    // This is the common cause of a chat that appears to send but never gets a
+    // usable answer on a local-only installation.
+    if (!selectedModel || selectedModel.installed === false) {
+      const preferred = models.find(m => m.installed && m.name === "llama3.1:latest") ||
+                        models.find(m => m.installed && m.location === "local") ||
+                        models.find(m => m.installed && m.name.startsWith("gemini")) ||
+                        models.find(m => m.installed) ||
                         models[0];
       if (preferred) {
         state.model = preferred.name;
@@ -2320,4 +2325,3 @@ const urlParams = new URLSearchParams(window.location.search);
 if (urlParams.get("app") === "android" || window.location.hash === "#android") {
   launchAndroidCompanion();
 }
-

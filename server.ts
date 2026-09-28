@@ -42,7 +42,9 @@ function loadEnvFile() {
 }
 loadEnvFile();
 
-const DEFAULT_MODEL = process.env.DEFAULT_MODEL || 'gemini-3.7-flash';
+// Prefer a local model by default. Cloud Gemini remains available when a key
+// is configured, but should never be the silent default on an offline install.
+const DEFAULT_MODEL = process.env.DEFAULT_MODEL || 'llama3.1:latest';
 
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
@@ -103,6 +105,7 @@ function resolveDataDir(): string {
 const rootDir = process.cwd();
 let dataDir = resolveDataDir();
 let isFirstRun = false;
+let allowedRoots: string[] = [];
 const globalConfigPath = path.join(os.homedir(), '.mini-o.json');
 try {
   if (fs.existsSync(globalConfigPath)) {
@@ -111,12 +114,16 @@ try {
       dataDir = cfg.workspaceDir;
       process.env.MINI_O_DATA_DIR = dataDir; // update env for subsequent calls
     }
+    if (Array.isArray(cfg.allowedRoots)) {
+      allowedRoots = cfg.allowedRoots.filter((value: unknown) => typeof value === 'string').map((value: string) => path.resolve(value));
+    }
   } else {
     isFirstRun = true;
   }
 } catch (e) {
   isFirstRun = true;
 }
+allowedRoots = Array.from(new Set([path.resolve(dataDir), ...allowedRoots]));
 
 try {
   if (!fs.existsSync(dataDir)) {
@@ -384,7 +391,7 @@ const toolDefinitions = [
   {
     name: 'write_file',
     description: 'Write text content to a file in the workspace.',
-    requires_confirmation: false,
+    requires_confirmation: true,
     category: 'workspace',
     risk: 'high',
     side_effects: ['overwrites local file'],
@@ -394,7 +401,7 @@ const toolDefinitions = [
       properties: { path: { type: 'string' }, content: { type: 'string' } },
       required: ['path', 'content'],
     },
-    policy: { enabled: true, mode: 'allow', scope: 'session' },
+    policy: { enabled: true, mode: 'confirm', scope: 'once' },
   },
   {
     name: 'list_files',
@@ -428,7 +435,7 @@ const toolDefinitions = [
   {
     name: 'run_python',
     description: 'Execute a Python code snippet in the workspace and return stdout/stderr.',
-    requires_confirmation: false,
+    requires_confirmation: true,
     category: 'execution',
     risk: 'critical',
     side_effects: ['executes Python in workspace'],
@@ -438,12 +445,12 @@ const toolDefinitions = [
       properties: { code: { type: 'string', description: 'Python code to execute' } },
       required: ['code'],
     },
-    policy: { enabled: true, mode: 'allow', scope: 'session' },
+    policy: { enabled: true, mode: 'confirm', scope: 'once' },
   },
   {
     name: 'run_shell',
     description: 'Execute a shell command in the workspace directory and return its output.',
-    requires_confirmation: false,
+    requires_confirmation: true,
     category: 'execution',
     risk: 'critical',
     side_effects: ['executes shell command in workspace'],
@@ -453,7 +460,7 @@ const toolDefinitions = [
       properties: { command: { type: 'string', description: 'Shell command string to run' } },
       required: ['command'],
     },
-    policy: { enabled: true, mode: 'allow', scope: 'session' },
+    policy: { enabled: true, mode: 'confirm', scope: 'once' },
   },
   {
     name: 'web_fetch',
@@ -982,6 +989,10 @@ async function getDynamicModelCatalog(): Promise<ModelCatalogItem[]> {
   // Start with a clone of the base catalog
   const catalogMap = new Map<string, ModelCatalogItem>();
   modelCatalog.forEach(m => catalogMap.set(m.name, { ...m }));
+  const geminiAvailable = Boolean(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY);
+  for (const item of catalogMap.values()) {
+    if (item.family === 'gemini') item.installed = geminiAvailable;
+  }
 
   try {
     const controller = new AbortController();
@@ -1098,8 +1109,37 @@ const geminiFunctionDeclarations: FunctionDeclaration[] = [
   },
 ];
 
-// Helper: safe path resolution within workspace (cross-platform Linux & Windows)
-function resolveSafePath(relPath: string = '.'): { ok: boolean; path: string; error?: string } {
+interface SafePathResult {
+  ok: boolean;
+  path: string;
+  error?: string;
+  requires_directory_permission?: boolean;
+  requested_directory?: string;
+}
+
+class InteractionRequired extends Error {
+  constructor(readonly interaction: Record<string, unknown>) {
+    super('User approval is required before this tool can continue');
+    this.name = 'InteractionRequired';
+  }
+}
+
+function isWithinRoot(target: string, root: string): boolean {
+  const relative = path.relative(root, target);
+  return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative));
+}
+
+function permissionDirectoryFor(target: string): string {
+  try {
+    return fs.existsSync(target) && fs.statSync(target).isDirectory() ? target : path.dirname(target);
+  } catch {
+    return path.dirname(target);
+  }
+}
+
+// Resolve a path without ever rewriting traversal segments. A path outside an
+// approved root becomes a permission request rather than a silent redirect.
+function resolveSafePath(relPath: string = '.', requestApprovedRoots: string[] = []): SafePathResult {
   if (typeof relPath !== 'string') {
     return { ok: false, path: dataDir, error: 'Path must be a valid string' };
   }
@@ -1109,20 +1149,26 @@ function resolveSafePath(relPath: string = '.'): { ok: boolean; path: string; er
     return { ok: false, path: dataDir, error: 'Null bytes are not allowed in file paths' };
   }
 
-  // Handle Windows and POSIX path separators
-  const sanitizedRel = relPath.replace(/^(\.\.(\/|\\|$))+/, '').replace(/^[a-zA-Z]:[/\\]/, '');
-  const normalized = path.normalize(sanitizedRel);
-  const target = path.resolve(dataDir, normalized);
-
-  const isWindows = process.platform === 'win32';
-  const targetCmp = isWindows ? target.toLowerCase() : target;
-  const dataDirCmp = isWindows ? dataDir.toLowerCase() : dataDir;
-
-  if (!targetCmp.startsWith(dataDirCmp)) {
+  // Keep ordinary workspace-relative paths relative to the selected workspace.
+  // A leading ../ is intentionally relative to the Mini-O process directory so
+  // a task such as "improve ../DartVector" names its sibling project exactly.
+  const normalizedInput = relPath.replace(/\\/g, path.sep);
+  const target = path.resolve(
+    path.isAbsolute(normalizedInput) ? normalizedInput : (normalizedInput.startsWith(`..${path.sep}`) ? rootDir : dataDir),
+    normalizedInput,
+  );
+  const approvedRoots = Array.from(new Set([
+    ...allowedRoots,
+    ...requestApprovedRoots.filter(value => typeof value === 'string').map(value => path.resolve(value)),
+  ]));
+  if (!approvedRoots.some(root => isWithinRoot(target, root))) {
+    const requestedDirectory = permissionDirectoryFor(target);
     return {
       ok: false,
-      path: dataDir,
-      error: `Access Denied: Path '${relPath}' resolves outside the allowed workspace boundary (${dataDir})`,
+      path: target,
+      error: `Directory permission is required for '${requestedDirectory}'`,
+      requires_directory_permission: true,
+      requested_directory: requestedDirectory,
     };
   }
 
@@ -1208,8 +1254,9 @@ ${chunks.join('\n\n')}
 async function executeTool(
   name: string,
   args: any,
-  confirmedTools: string[] = []
-): Promise<{ ok: boolean; output?: string; error?: string; requires_confirmation?: boolean; risk?: string; side_effects?: string[] }> {
+  confirmedTools: string[] = [],
+  requestApprovedRoots: string[] = [],
+): Promise<{ ok: boolean; output?: string; error?: string; requires_confirmation?: boolean; requires_directory_permission?: boolean; requested_directory?: string; risk?: string; side_effects?: string[] }> {
   try {
     let toolName = name;
     let toolArgs = { ...args };
@@ -1253,9 +1300,9 @@ async function executeTool(
     }
 
     if (name === 'read_file') {
-      const resolved = resolveSafePath(args.path);
+      const resolved = resolveSafePath(args.path, requestApprovedRoots);
       if (!resolved.ok) {
-        return { ok: false, error: resolved.error };
+        return { ok: false, error: resolved.error, requires_directory_permission: resolved.requires_directory_permission, requested_directory: resolved.requested_directory };
       }
       if (!fs.existsSync(resolved.path)) {
         return { ok: false, error: `File not found in workspace: '${args.path}'` };
@@ -1268,9 +1315,9 @@ async function executeTool(
     }
 
     if (name === 'write_file') {
-      const resolved = resolveSafePath(args.path);
+      const resolved = resolveSafePath(args.path, requestApprovedRoots);
       if (!resolved.ok) {
-        return { ok: false, error: resolved.error };
+        return { ok: false, error: resolved.error, requires_directory_permission: resolved.requires_directory_permission, requested_directory: resolved.requested_directory };
       }
       fs.mkdirSync(path.dirname(resolved.path), { recursive: true });
       fs.writeFileSync(resolved.path, args.content || '', 'utf-8');
@@ -1279,9 +1326,9 @@ async function executeTool(
     }
 
     if (name === 'list_files') {
-      const resolved = resolveSafePath(args.path || '.');
+      const resolved = resolveSafePath(args.path || '.', requestApprovedRoots);
       if (!resolved.ok) {
-        return { ok: false, error: resolved.error };
+        return { ok: false, error: resolved.error, requires_directory_permission: resolved.requires_directory_permission, requested_directory: resolved.requested_directory };
       }
       if (!fs.existsSync(resolved.path)) {
         return { ok: false, error: `Directory not found: '${args.path}'` };
@@ -1642,6 +1689,8 @@ function setupApiRoutes(router: express.Router) {
       useTools,
       confirmed_tools,
       confirmedTools,
+      approved_roots,
+      approvedRoots,
       options = {},
       workspace_path
     } = req.body;
@@ -1676,7 +1725,8 @@ function setupApiRoutes(router: express.Router) {
 
     const convId = conversationId || conversation_id || `conv_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const enableTools = useTools !== undefined ? useTools : (use_tools !== undefined ? use_tools : true);
-    const confirmedList = confirmedTools || confirmed_tools || [];
+    const confirmedList = Array.isArray(confirmedTools || confirmed_tools) ? (confirmedTools || confirmed_tools) : [];
+    const requestApprovedRoots = Array.isArray(approvedRoots || approved_roots) ? (approvedRoots || approved_roots) : [];
     const fullMessages = Array.isArray(messages) ? [...messages] : [];
     const lastUserMsg = fullMessages.filter(m => m.role === 'user').at(-1)?.content || '';
 
@@ -1685,10 +1735,34 @@ function setupApiRoutes(router: express.Router) {
     let assistantContent = '';
     let streamStats: any = null;
 
+    const pauseForInteraction = (toolName: string, toolArgs: any, result: Awaited<ReturnType<typeof executeTool>>) => {
+      if (result.requires_directory_permission) {
+        throw new InteractionRequired({
+          type: 'directory_permission_required',
+          directory: result.requested_directory,
+          tool: toolName,
+          args: toolArgs,
+          message: `Allow Mini-O to access ${result.requested_directory}?`,
+        });
+      }
+      if (result.requires_confirmation) {
+        throw new InteractionRequired({
+          type: 'tool_approval_required',
+          tool: toolName,
+          args: toolArgs,
+          risk: result.risk,
+          side_effects: result.side_effects,
+          message: `Allow Mini-O to run ${toolName}?`,
+        });
+      }
+    };
+
     // AGENT.md is the primary orchestrator. Resolve every applicable
     // AGENT.md (root -> active workspace folder) and put it ahead of the
     // default persona so it reads as authoritative, not supplementary.
-    const basePersona = 'You are Mini-O, a versatile local AI workspace assistant with access to local workspace files and tools.';
+    const basePersona = `You are Mini-O, a versatile local AI workspace assistant with access to local workspace files and tools.
+The Mini-O application directory is ${rootDir}; the active workspace is ${dataDir}.
+Use the supplied file tools to inspect projects before changing them. Paths outside approved workspace roots trigger a user Allow/Deny dialog; never claim you accessed a directory unless a tool result confirms it.`;
     const agentResult = resolveAgentDirectives(workspace_path);
     const agentInstructions = agentResult.active
       ? `${agentResult.block}\n\n${basePersona}`
@@ -1780,7 +1854,8 @@ function setupApiRoutes(router: express.Router) {
           const toolResultsParts: any[] = [];
           for (const fc of pendingFunctionCalls) {
             sendSSE('tool_call', { type: 'tool_call', name: fc.name, data: JSON.stringify(fc.args), args: fc.args });
-            const tResult = await executeTool(fc.name, fc.args, confirmedList);
+            const tResult = await executeTool(fc.name, fc.args, confirmedList, requestApprovedRoots);
+            pauseForInteraction(fc.name, fc.args, tResult);
             sendSSE('tool_result', { type: 'tool_result', name: fc.name, data: tResult.output || tResult.error || 'ok', ...tResult });
             toolResultsParts.push({
               functionResponse: {
@@ -1888,7 +1963,9 @@ function setupApiRoutes(router: express.Router) {
             }
 
             const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), 120000);
+            const connectTimeoutMs = Math.max(5_000, Number(process.env.OLLAMA_CONNECT_TIMEOUT_MS) || 45_000);
+            const idleTimeoutMs = Math.max(10_000, Number(process.env.OLLAMA_STREAM_IDLE_TIMEOUT_MS) || 90_000);
+            let timeout = setTimeout(() => controller.abort(), connectTimeoutMs);
             const ollamaResp = await fetch(`${getOllamaHost()}/api/chat`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -1909,10 +1986,16 @@ function setupApiRoutes(router: express.Router) {
             const reader = ollamaResp.body.getReader();
             const decoder = new TextDecoder();
             let buffer = '';
+            // A server can acknowledge a request and then stop producing
+            // chunks. Abort that idle stream so the UI gets a retryable error
+            // instead of spinning forever.
+            timeout = setTimeout(() => controller.abort(), idleTimeoutMs);
 
             while (true) {
               const { done, value } = await reader.read();
               if (done) break;
+              clearTimeout(timeout);
+              timeout = setTimeout(() => controller.abort(), idleTimeoutMs);
               buffer += decoder.decode(value, { stream: true });
               const lines = buffer.split('\n');
               buffer = lines.pop() || '';
@@ -1965,6 +2048,11 @@ function setupApiRoutes(router: express.Router) {
                 }
               } catch {}
             }
+            clearTimeout(timeout);
+
+            if (!iterationContent.trim() && pendingToolCalls.length === 0) {
+              throw new Error(`Ollama model '${targetModel}' returned an empty completion`);
+            }
 
             // Fallback: check if model emitted inline JSON tool call in text output
             if (enableTools && pendingToolCalls.length === 0 && iterationContent.trim()) {
@@ -2004,7 +2092,8 @@ function setupApiRoutes(router: express.Router) {
               }
 
               res.write(`event: tool_call\ndata: ${JSON.stringify({ type: 'tool_call', name: toolName, data: JSON.stringify(toolArgs), args: toolArgs })}\n\n`);
-              const tResult = await executeTool(toolName, toolArgs, confirmedList);
+              const tResult = await executeTool(toolName, toolArgs, confirmedList, requestApprovedRoots);
+              pauseForInteraction(toolName, toolArgs, tResult);
               res.write(`event: tool_result\ndata: ${JSON.stringify({ type: 'tool_result', name: toolName, data: tResult.output || tResult.error || (tResult.ok ? 'ok' : 'execution failed'), ...tResult })}\n\n`);
 
               toolActivity.unshift({
@@ -2035,11 +2124,13 @@ function setupApiRoutes(router: express.Router) {
             ];
           }
         } catch (ollamaErr: any) {
+          if (ollamaErr instanceof InteractionRequired) throw ollamaErr;
           ollamaErrorMsg = ollamaErr.message || String(ollamaErr);
           ollamaSuccess = false;
         }
 
         if (!ollamaSuccess) {
+          throw new Error(`Ollama did not complete a response for '${targetModel}': ${ollamaErrorMsg || 'unreachable'}`);
           // Local agent simulation / fallback for offline setups.
           // There is no model in this loop, so AGENT.md CANNOT be applied
           // here — say so explicitly instead of silently pretending this
@@ -2051,7 +2142,7 @@ function setupApiRoutes(router: express.Router) {
             : '';
           let simulatedReply = '';
           const lowerPrompt = lastUserMsg.toLowerCase();
-          let toolRan: { name: string; args: any; result: any } | null = null;
+          let toolRan: { name: string; args: any; result: any } = { name: '', args: {}, result: {} };
 
           if (ollamaErrorMsg) {
             if (ollamaErrorMsg.includes('402')) {
@@ -2084,13 +2175,15 @@ An error occurred while executing model \`${targetModel}\` via Ollama:
           } else if (enableTools && (lowerPrompt.includes('list') || lowerPrompt.includes('files') || lowerPrompt.includes('workspace'))) {
             const tArgs = { path: '.' };
             res.write(`event: tool_call\ndata: ${JSON.stringify({ type: 'tool_call', name: 'list_files', data: JSON.stringify(tArgs), args: tArgs })}\n\n`);
-            const tResult = await executeTool('list_files', tArgs, confirmedList);
+            const tResult = await executeTool('list_files', tArgs, confirmedList, requestApprovedRoots);
+            pauseForInteraction('list_files', tArgs, tResult);
             res.write(`event: tool_result\ndata: ${JSON.stringify({ type: 'tool_result', name: 'list_files', data: tResult.output || tResult.error || 'ok', ...tResult })}\n\n`);
             toolRan = { name: 'list_files', args: tArgs, result: tResult };
           } else if (enableTools && (lowerPrompt.includes('read') || lowerPrompt.includes('show')) && (lowerPrompt.includes('.md') || lowerPrompt.includes('file'))) {
             const tArgs = { path: 'welcome.md' };
             res.write(`event: tool_call\ndata: ${JSON.stringify({ type: 'tool_call', name: 'read_file', data: JSON.stringify(tArgs), args: tArgs })}\n\n`);
-            const tResult = await executeTool('read_file', tArgs, confirmedList);
+            const tResult = await executeTool('read_file', tArgs, confirmedList, requestApprovedRoots);
+            pauseForInteraction('read_file', tArgs, tResult);
             res.write(`event: tool_result\ndata: ${JSON.stringify({ type: 'tool_result', name: 'read_file', data: tResult.output || tResult.error || 'ok', ...tResult })}\n\n`);
             toolRan = { name: 'read_file', args: tArgs, result: tResult };
           }
@@ -2149,6 +2242,11 @@ You can interact with workspace files, configure tool policies, or send tasks to
       sendSSE('end', { type: 'end', id: convId });
       res.end();
     } catch (err: any) {
+      if (err instanceof InteractionRequired) {
+        sendSSE('permission_required', err.interaction);
+        sendSSE('end', { type: 'end', id: convId, needs_permission: true });
+        return res.end();
+      }
       const cleanMsg = formatCleanErrorMessage(err.message || 'Chat stream failed');
       const is429 = (err.message || '').includes('429') || (err.message || '').includes('RESOURCE_EXHAUSTED');
       const actionMsg = is429 ? 'Wait 60s or select a local model (llama3.1 / qwen2.5) from the model menu' : 'Click Retry to restart generation';
@@ -2747,20 +2845,38 @@ You can interact with workspace files, configure tool policies, or send tasks to
   router.get('/workspace/config', (_req, res) => {
     res.json({
       workspace_dir: dataDir, is_first_run: isFirstRun,
-      allowed_roots: [dataDir],
+      allowed_roots: allowedRoots,
       config_file: 'mini-o.config.json',
       tools: toolPolicies,
     });
   });
 
   router.put('/workspace/config', (req, res) => {
-    const { tools } = req.body;
+    const { tools, workspace_dir, allowed_roots } = req.body;
     if (tools && typeof tools === 'object') {
       Object.assign(toolPolicies, tools);
     }
+    if (workspace_dir && typeof workspace_dir === 'string') {
+      dataDir = path.resolve(workspace_dir);
+      if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+    }
+    if (Array.isArray(allowed_roots)) {
+      const roots = allowed_roots
+        .filter(value => typeof value === 'string' && value.trim().length > 0)
+        .map(value => path.resolve(value));
+      allowedRoots = Array.from(new Set([path.resolve(dataDir), ...roots]));
+    } else {
+      allowedRoots = Array.from(new Set([path.resolve(dataDir), ...allowedRoots]));
+    }
+    isFirstRun = false;
+    try {
+      fs.writeFileSync(globalConfigPath, JSON.stringify({ workspaceDir: dataDir, allowedRoots }, null, 2), 'utf-8');
+    } catch (err: any) {
+      return res.status(500).json(formatErrorPayload(500, 'WORKSPACE_CONFIG_SAVE_FAILED', 'filesystem', err.message, 'Check the Mini-O configuration directory permissions', req));
+    }
     res.json({
       workspace_dir: dataDir, is_first_run: isFirstRun,
-      allowed_roots: [dataDir],
+      allowed_roots: allowedRoots,
       config_file: 'mini-o.config.json',
       tools: toolPolicies,
     });
@@ -2775,13 +2891,14 @@ You can interact with workspace files, configure tool policies, or send tasks to
     
     // Save to global config
     dataDir = path.resolve(newPath);
+    allowedRoots = [dataDir];
     isFirstRun = false;
     
     try {
       if (!fs.existsSync(dataDir)) {
         fs.mkdirSync(dataDir, { recursive: true });
       }
-      fs.writeFileSync(globalConfigPath, JSON.stringify({ workspaceDir: dataDir }, null, 2), 'utf-8');
+      fs.writeFileSync(globalConfigPath, JSON.stringify({ workspaceDir: dataDir, allowedRoots }, null, 2), 'utf-8');
     } catch (e) {
       return res.status(500).json({ error: 'Failed to create or save workspace dir: ' + (e as Error).message });
     }
